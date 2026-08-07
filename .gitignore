@@ -22,3 +22,15 @@ storage/index/
 
 # VS Code
 .vscode/
+
+# Generated artifacts
+storage/raw/*
+storage/processed/*
+storage/embeddings/*
+storage/index/*
+
+# Keep directory structure
+!storage/raw/.gitkeep
+!storage/processed/.gitkeep
+!storage/embeddings/.gitkeep
+!storage/index/.gitkeep
