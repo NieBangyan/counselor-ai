@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Virtual environment
+.venv/
+
+# Environment variables
+.env
+
+# Local models
+models/
+
+# Generated embeddings
+storage/embeddings/
+
+# FAISS index
+storage/index/
+
+# macOS
+.DS_Store
+
+# VS Code
+.vscode/
