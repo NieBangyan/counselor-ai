@@ -18,10 +18,7 @@ FAISS_INDEX_PATH = INDEX_DIR / "handbook.index"
 EMBEDDING_MODEL_NAME = str(
     PROJECT_ROOT
     / "models"
-    / "models"
-    / "BAAI--bge-small-zh-v1.5"
-    / "snapshots"
-    / "master"
+    / "bge-small-zh-v1.5"
 )
 
 EMBEDDING_BATCH_SIZE = 64
