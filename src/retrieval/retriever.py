@@ -8,6 +8,7 @@ from src.config import (
     CHUNKS_PATH,
     FAISS_INDEX_PATH,
     TOP_K,
+    MIN_RETRIEVAL_SCORE,
 )
 from src.embedding.model import get_embedding_model
 
@@ -80,6 +81,8 @@ class Retriever:
             indices[0],
         ):
             if index < 0:
+                continue
+            if score < MIN_RETRIEVAL_SCORE:
                 continue
 
             chunk = self.chunks[index]

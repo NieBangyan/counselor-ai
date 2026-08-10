@@ -39,6 +39,12 @@ class DeepSeekClient:
             question=question,
             results=retrieval_results,
         )
+        if not retrieval_results:
+            return (
+                "根据当前检索到的《学生手册》内容，"
+                "暂时没有找到足够可靠的相关规定，"
+                "因此无法确认这个问题。"
+           )
 
         response = self.client.chat.completions.create(
             model=self.model,
