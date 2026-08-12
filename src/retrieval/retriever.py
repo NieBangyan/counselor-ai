@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 from typing import Any
-
+from src.retrieval.rerank import rerank_results
 import faiss
 
 from src.config import (
@@ -104,4 +104,4 @@ class Retriever:
                 }
             )
 
-        return results
+        return rerank_results(results)
