@@ -47,29 +47,24 @@ SYSTEM_PROMPT = """
 10. 表达简洁、清楚，适合直接面向学生使用。
 """.strip()
 
-
 def build_context(results: list[dict[str, Any]]) -> str:
-    """
-    将 Retriever 返回的结果整理成给大模型看的上下文。
-    """
     blocks: list[str] = []
 
     for index, item in enumerate(results, start=1):
+        source_id = f"S{index}"
+
         document_title = (
             item.get("document_title")
             or "未标注制度"
         )
-
         chapter = (
             item.get("chapter")
             or "未标注章节"
         )
-
         article = (
             item.get("article")
             or "未标注条款"
         )
-
         pages = item.get("pdf_pages") or []
         content = item.get("content") or ""
 
@@ -80,7 +75,7 @@ def build_context(results: list[dict[str, Any]]) -> str:
         )
 
         block = (
-            f"【资料{index}】\n"
+            f"【{source_id}】\n"
             f"制度：{document_title}\n"
             f"章节：{chapter}\n"
             f"条款：{article}\n"
@@ -97,22 +92,24 @@ def build_user_prompt(
     question: str,
     results: list[dict[str, Any]],
 ) -> str:
-    """
-    构造最终发送给 DeepSeek 的用户消息。
-    """
     context = build_context(results)
 
     return (
         "以下是从《学生手册》中检索到的相关资料。\n"
-        "这些资料可能涉及相近但不同的政策概念，"
-        "请先判断哪一条与学生问题最直接相关。\n\n"
+        "资料使用固定编号 S1、S2、S3……。\n\n"
         f"{context}\n\n"
         "【学生问题】\n"
         f"{question}\n\n"
-        "请按以下顺序回答：\n"
-        "1. 直接结论；\n"
-        "2. 必要的解释或办理要求；\n"
-        "3. 政策依据。\n\n"
-        "如果资料之间涉及不同适用场景，请明确区分。\n"
-        "如果资料不足，请明确说明无法依据当前《学生手册》确认。"
+        "请严格依据以上资料回答。\n"
+        "最后只输出一个 JSON 对象，格式必须为：\n"
+        "{\n"
+        '  "answer": "给学生的完整回答",\n'
+        '  "cited_source_ids": ["S1", "S2"]\n'
+        "}\n\n"
+        "要求：\n"
+        "1. cited_source_ids 只能包含上面真实存在的资料编号；\n"
+        "2. 只填写回答中实际使用的资料；\n"
+        "3. 不要为了凑数量引用无关资料；\n"
+        "4. 如果资料不足，cited_source_ids 返回空列表；\n"
+        "5. JSON 外不要输出任何其他内容。"
     )

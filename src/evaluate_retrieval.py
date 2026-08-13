@@ -38,6 +38,37 @@ def is_expected_result(
     )
 
 
+def print_candidate(
+    item: dict[str, Any],
+    prefix: str = "       ",
+) -> None:
+    """
+    打印候选结果及两阶段检索分数。
+    """
+    embedding_score = item.get(
+        "embedding_score",
+        item.get("score"),
+    )
+    rerank_score = item.get("rerank_score")
+
+    print(
+        f"{prefix}{item['document_title']} / "
+        f"{item['article']}"
+    )
+
+    if embedding_score is not None:
+        print(
+            f"{prefix}Embedding Score: "
+            f"{embedding_score:.4f}"
+        )
+
+    if rerank_score is not None:
+        print(
+            f"{prefix}Rerank Score: "
+            f"{rerank_score:.4f}"
+        )
+
+
 def main() -> None:
     cases = load_test_cases()
 
@@ -66,9 +97,9 @@ def main() -> None:
 
         print()
 
-        # 
+        # ============================================================
         # 知识库外问题
-        # 
+        # ============================================================
         if not should_retrieve:
             negative_count += 1
 
@@ -86,23 +117,27 @@ def main() -> None:
             )
 
             if rejected:
-                print("       检索结果：无（正确拒绝）")
+                print(
+                    "       检索结果：无（正确拒绝）"
+                )
             else:
                 top1 = results[0]
 
-                print(
-                    f"       Top1: "
-                    f"{top1['document_title']} / "
-                    f"{top1['article']} / "
-                    f"{top1['score']:.4f}"
+                print("       Top1:")
+                print_candidate(
+                    top1,
+                    prefix="         ",
                 )
-                print("       Expected: 应该拒绝检索")
+
+                print(
+                    "       Expected: 应该拒绝检索"
+                )
 
             continue
 
-        
+        # ============================================================
         # 知识库内问题
-        
+        # ============================================================
         positive_count += 1
 
         recall_hit = any(
@@ -112,7 +147,10 @@ def main() -> None:
 
         top1_hit = (
             bool(results)
-            and is_expected_result(results[0], case)
+            and is_expected_result(
+                results[0],
+                case,
+            )
         )
 
         if recall_hit:
@@ -121,7 +159,7 @@ def main() -> None:
         if top1_hit:
             top1_passed += 1
 
-        # 这里用 Recall@K 判断整体 PASS/FAIL
+        # 整体 PASS/FAIL 使用 Recall@K
         status = "PASS" if recall_hit else "FAIL"
 
         print(
@@ -143,19 +181,75 @@ def main() -> None:
         print(
             f"       Top1: "
             f"{top1['document_title']} / "
-            f"{top1['article']} / "
-            f"{top1['score']:.4f}"
+            f"{top1['article']}"
         )
+
+        embedding_score = top1.get(
+            "embedding_score",
+            top1.get("score"),
+        )
+
+        rerank_score = top1.get(
+            "rerank_score"
+        )
+
+        if embedding_score is not None:
+            print(
+                f"       Embedding Score: "
+                f"{embedding_score:.4f}"
+            )
+
+        if rerank_score is not None:
+            print(
+                f"       Rerank Score: "
+                f"{rerank_score:.4f}"
+            )
 
         if top1_hit:
             print("       Top1 Match: YES")
+
         else:
             print("       Top1 Match: NO")
+
             print(
                 "       Expected: "
                 f"{case['expected_document']} / "
                 f"{case['expected_article']}"
             )
+
+            print()
+            print("       Final Candidates:")
+
+            for rank, item in enumerate(
+                results,
+                start=1,
+            ):
+                embedding = item.get(
+                    "embedding_score",
+                    item.get("score"),
+                )
+
+                rerank = item.get(
+                    "rerank_score"
+                )
+
+                print(
+                    f"         #{rank} "
+                    f"{item['document_title']} / "
+                    f"{item['article']}"
+                )
+
+                if embedding is not None:
+                    print(
+                        f"            embedding="
+                        f"{embedding:.4f}"
+                    )
+
+                if rerank is not None:
+                    print(
+                        f"            rerank="
+                        f"{rerank:.4f}"
+                    )
 
             top1_failures.append(
                 {
@@ -169,25 +263,27 @@ def main() -> None:
                     "actual_document": top1[
                         "document_title"
                     ],
-                    "actual_article": top1["article"],
-                    "actual_score": top1["score"],
+                    "actual_article": top1[
+                        "article"
+                    ],
+                    "embedding_score": (
+                        embedding_score
+                    ),
+                    "rerank_score": (
+                        rerank_score
+                    ),
                 }
             )
 
+        # Recall@K 完全失败时输出候选
         if not recall_hit:
-            print("       Retrieved:")
+            print()
+            print(
+                "       Expected result was "
+                "not found in final candidates."
+            )
 
-            for item in results:
-                print(
-                    "         - "
-                    f"{item['document_title']} / "
-                    f"{item['article']} / "
-                    f"{item['score']:.4f}"
-                )
-
-    
     # 统计
-    # 
 
     recall_accuracy = (
         recall_passed / positive_count * 100
@@ -229,10 +325,7 @@ def main() -> None:
         f"{rejection_passed}/{negative_count} "
         f"({rejection_accuracy:.1f}%)"
     )
-
-    # 
-    # 输出 Top1 排序失败案例
-    # 
+    # Top1 排序失败案例
 
     if top1_failures:
         print()
@@ -242,18 +335,41 @@ def main() -> None:
 
         for failure in top1_failures:
             print()
-            print(f"问题：{failure['query']}")
+            print(
+                f"问题：{failure['query']}"
+            )
+
             print(
                 "Expected: "
                 f"{failure['expected_document']} / "
                 f"{failure['expected_article']}"
             )
+
             print(
                 "Actual:   "
                 f"{failure['actual_document']} / "
-                f"{failure['actual_article']} / "
-                f"{failure['actual_score']:.4f}"
+                f"{failure['actual_article']}"
             )
+
+            embedding_score = failure[
+                "embedding_score"
+            ]
+
+            rerank_score = failure[
+                "rerank_score"
+            ]
+
+            if embedding_score is not None:
+                print(
+                    "Embedding Score: "
+                    f"{embedding_score:.4f}"
+                )
+
+            if rerank_score is not None:
+                print(
+                    "Rerank Score:    "
+                    f"{rerank_score:.4f}"
+                )
 
     print()
     print("=" * 70)

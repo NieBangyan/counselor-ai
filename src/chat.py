@@ -24,12 +24,60 @@ def main() -> None:
         try:
             results = retriever.retrieve(question)
 
-            answer = client.answer(
+            llm_result = client.answer(
                 question=question,
                 retrieval_results=results,
             )
 
-            print(f"\nAI辅导员：{answer}")
+            answer = llm_result["answer"]
+            cited_source_ids = set(
+                llm_result["cited_source_ids"]
+            )
+
+            print(f"\nAI辅导员：\n{answer}")
+
+            if cited_source_ids:
+                print("\n参考依据：")
+
+                for index, item in enumerate(
+                    results,
+                    start=1,
+                ):
+                    source_id = f"S{index}"
+
+                    if source_id not in cited_source_ids:
+                        continue
+
+                    document_title = (
+                        item.get("document_title")
+                        or "未标注制度"
+                    )
+                    chapter = (
+                        item.get("chapter")
+                        or "未标注章节"
+                    )
+                    article = (
+                        item.get("article")
+                        or "未标注条款"
+                    )
+                    pages = item.get("pdf_pages") or []
+
+                    page_text = (
+                        "、".join(
+                            str(page)
+                            for page in pages
+                        )
+                        if pages
+                        else "未标注"
+                    )
+
+                    print(
+                        f"- [{source_id}] "
+                        f"{document_title} / "
+                        f"{chapter} / "
+                        f"{article} / "
+                        f"PDF第{page_text}页"
+                    )
 
         except Exception as exc:
             print(f"\n发生错误：{exc}")

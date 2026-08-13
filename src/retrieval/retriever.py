@@ -104,4 +104,7 @@ class Retriever:
                 }
             )
 
-        return rerank_results(results)
+        return rerank_results(
+        query=query,
+        results=results,
+)

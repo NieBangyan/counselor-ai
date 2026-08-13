@@ -46,7 +46,7 @@ class Source(BaseModel):
     document_title: str | None = None
     chapter: str | None = None
     article: str | None = None
-    pdf_pages: list[int] = []
+    pdf_pages: list[int] = Field(default_factory=list)
     score: float
 
 
