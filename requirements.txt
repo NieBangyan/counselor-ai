@@ -5,5 +5,5 @@ numpy
 openai
 python-dotenv
 fastapi
-unicorn
+uvicorn
 

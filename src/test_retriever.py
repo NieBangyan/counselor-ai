@@ -4,8 +4,7 @@ from src.retrieval.retriever import Retriever
 retriever = Retriever()
 
 results = retriever.retrieve(
-    "我想请假四天，需要谁批准？"
-)
+"明天天气怎么样？")
 
 for i, result in enumerate(results, start=1):
     print("=" * 70)

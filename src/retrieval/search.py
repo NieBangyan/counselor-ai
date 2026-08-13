@@ -65,16 +65,15 @@ if __name__ == "__main__":
 
         print("\n========================")
 
-        for i, item in enumerate(results, start=1):
-            chunk = item["chunk"]
-
-            print(f"\nTop {i}")
-            print(f"Score: {item['score']:.4f}")
-            print(f"文档：{chunk['document_title']}")
-            print(f"章节：{chunk['chapter']}")
-            print(f"条款：{chunk['article']}")
-            print(f"页码：{chunk['pdf_pages']}")
-            print("-" * 60)
-            print(chunk["content"])
-
         print("\n========================")
+
+        top1 = results[0]
+
+        chunk = top1["chunk"]
+
+        print(f"Top 1 Score: {top1['score']:.4f}")
+        print(f"文档：{chunk['document_title']}")
+        print(f"条款：{chunk['article']}")
+        print(f"内容：{chunk['content'][:120]}...")
+
+        print("========================")

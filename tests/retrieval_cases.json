@@ -1,0 +1,142 @@
+[
+  {
+    "id": "leave_001",
+    "query": "我想请四天假，需要谁批准？",
+    "expected_document": "清华大学本科生学籍管理规定",
+    "expected_article": "第十一条",
+    "should_retrieve": true
+  },
+  {
+    "id": "leave_002",
+    "query": "因病请假需要提供什么材料？",
+    "expected_document": "清华大学本科生学籍管理规定",
+    "expected_article": "第十一条",
+    "should_retrieve": true
+  },
+  {
+    "id": "leave_003",
+    "query": "请假结束之后需要销假吗？",
+    "expected_document": "清华大学本科生学籍管理规定",
+    "expected_article": "第十一条",
+    "should_retrieve": true
+  },
+  {
+    "id": "registration_001",
+    "query": "开学两周没有注册会有什么后果？",
+    "expected_document": "清华大学本科生学籍管理规定",
+    "expected_article": "第七条",
+    "should_retrieve": true
+  },
+  {
+    "id": "study_001",
+    "query": "本科最长可以读几年？",
+    "expected_document": "清华大学本科生学籍管理规定",
+    "expected_article": "第八条",
+    "should_retrieve": true
+  },
+  {
+    "id": "retake_001",
+    "query": "课程挂科以后可以重修吗？",
+    "expected_document": "清华大学本科生学籍管理规定",
+    "expected_article": "第二十条",
+    "should_retrieve": true
+  },
+  {
+    "id": "exam_001",
+    "query": "生病不能参加考试怎么办？",
+    "expected_document": "清华大学本科生学籍管理规定",
+    "expected_article": "第二十一条",
+    "should_retrieve": true
+  },
+  {
+    "id": "leave_school_001",
+    "query": "请假太多会不会需要休学？",
+    "expected_document": "清华大学本科生学籍管理规定",
+    "expected_article": "第二十六条",
+    "should_retrieve": true
+  },
+  {
+    "id": "transfer_001",
+    "query": "大二还能申请转专业吗？",
+    "expected_document": "清华大学本科生学籍管理规定",
+    "expected_article": "第三十三条",
+    "should_retrieve": true
+  },
+  {
+    "id": "withdraw_001",
+    "query": "连续两个学期取得学分太少会怎么样？",
+    "expected_document": "清华大学本科生学籍管理规定",
+    "expected_article": "第三十九条",
+    "should_retrieve": true
+  },
+  {
+    "id": "graduation_001",
+    "query": "满足什么条件才能本科毕业？",
+    "expected_document": "清华大学本科生学籍管理规定",
+    "expected_article": "第四十五条",
+    "should_retrieve": true
+  },
+  {
+    "id": "scholarship_001",
+    "query": "申请奖学金需要满足什么条件？",
+    "expected_document": "清华大学学生奖学金管理规定",
+    "expected_article": "第十二条",
+    "should_retrieve": true
+  },
+  {
+    "id": "scholarship_002",
+    "query": "奖学金是怎么评选的？",
+    "expected_document": "清华大学学生奖学金管理规定",
+    "expected_article": "第十五条",
+    "should_retrieve": true
+  },
+  {
+    "id": "scholarship_003",
+    "query": "有课程没通过还能申请奖学金吗？",
+    "expected_document": "清华大学学生奖学金管理规定",
+    "expected_article": "第十二条",
+    "should_retrieve": true
+  },
+  {
+    "id": "irrelevant_001",
+    "query": "明天天气怎么样？",
+    "expected_document": null,
+    "expected_article": null,
+    "should_retrieve": false
+  },
+  {
+    "id": "irrelevant_002",
+    "query": "学校食堂今天晚上有什么菜？",
+    "expected_document": null,
+    "expected_article": null,
+    "should_retrieve": false
+  },
+  {
+    "id": "irrelevant_003",
+    "query": "学校附近哪家火锅最好吃？",
+    "expected_document": null,
+    "expected_article": null,
+    "should_retrieve": false
+  },
+  {
+    "id": "irrelevant_004",
+    "query": "今天比特币涨了吗？",
+    "expected_document": null,
+    "expected_article": null,
+    "should_retrieve": false
+  },
+  {
+    "id": "irrelevant_005",
+    "query": "帮我写一个Python贪吃蛇程序。",
+    "expected_document": null,
+    "expected_article": null,
+    "should_retrieve": false
+  },
+  {
+    "id": "irrelevant_006",
+    "query": "周末北京哪里适合约会？",
+    "expected_document": null,
+    "expected_article": null,
+    "should_retrieve": false
+  }
+]
