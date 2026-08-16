@@ -1,0 +1,315 @@
+import json
+from pathlib import Path
+from typing import Any
+
+from src.llm.deepseek_client import DeepSeekClient
+from src.retrieval.retriever import Retriever
+
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+TEST_CASES_PATH = PROJECT_ROOT / "tests" / "rag_cases.json"
+
+
+def load_test_cases() -> list[dict[str, Any]]:
+    if not TEST_CASES_PATH.exists():
+        raise FileNotFoundError(
+            f"找不到测试集：{TEST_CASES_PATH}"
+        )
+
+    with TEST_CASES_PATH.open(
+        "r",
+        encoding="utf-8",
+    ) as file:
+        cases = json.load(file)
+
+    if not isinstance(cases, list):
+        raise ValueError("测试集最外层必须是列表。")
+
+    return cases
+
+
+def check_keywords(
+    answer: str,
+    keywords: list[str],
+) -> tuple[bool, list[str]]:
+    """
+    检查回答是否包含所有必要关键词。
+    """
+    missing = [
+        keyword
+        for keyword in keywords
+        if keyword not in answer
+    ]
+
+    return len(missing) == 0, missing
+
+
+def get_cited_results(
+    results: list[dict[str, Any]],
+    cited_source_ids: list[str],
+) -> list[dict[str, Any]]:
+    """
+    将 S1 / S2 等引用 ID 映射回 Retriever 结果。
+    """
+    cited_results: list[dict[str, Any]] = []
+
+    for source_id in cited_source_ids:
+        if not source_id.startswith("S"):
+            continue
+
+        try:
+            index = int(source_id[1:]) - 1
+        except ValueError:
+            continue
+
+        if 0 <= index < len(results):
+            cited_results.append(results[index])
+
+    return cited_results
+
+
+def check_citation(
+    cited_results: list[dict[str, Any]],
+    expected_document: str,
+    expected_article: str,
+) -> bool:
+    """
+    检查最终实际引用中是否包含预期条款。
+    """
+    return any(
+        item.get("document_title")
+        == expected_document
+        and item.get("article")
+        == expected_article
+        for item in cited_results
+    )
+
+
+def main() -> None:
+    cases = load_test_cases()
+
+    print("正在加载 RAG 系统...")
+
+    retriever = Retriever()
+    client = DeepSeekClient()
+
+    print("RAG 系统加载完成。")
+
+    answer_passed = 0
+    citation_passed = 0
+    rejection_passed = 0
+    overall_passed = 0
+
+    positive_count = 0
+    negative_count = 0
+
+    print()
+    print("=" * 70)
+    print("RAG Evaluation")
+    print("=" * 70)
+
+    for number, case in enumerate(cases, start=1):
+        query = case["query"]
+        should_answer = case["should_answer"]
+
+        results = retriever.retrieve(query)
+
+        llm_result = client.answer(
+            question=query,
+            retrieval_results=results,
+        )
+
+        answer = llm_result["answer"]
+        cited_source_ids = llm_result[
+            "cited_source_ids"
+        ]
+
+        cited_results = get_cited_results(
+            results,
+            cited_source_ids,
+        )
+
+        print()
+        print(f"{number:02d}. {query}")
+
+        # ============================================================
+        # 知识库外问题
+        # ============================================================
+
+        if not should_answer:
+            negative_count += 1
+
+            # 当前系统对知识库外问题应该在检索阶段直接无结果。
+            rejected = len(results) == 0
+
+            if rejected:
+                rejection_passed += 1
+                overall_passed += 1
+                status = "PASS"
+            else:
+                status = "FAIL"
+
+            print(f"     Status:    {status}")
+            print(
+                "     Rejection: "
+                f"{'PASS' if rejected else 'FAIL'}"
+            )
+
+            if not rejected:
+                print(
+                    f"     Retrieved: {len(results)}"
+                )
+
+            continue
+
+        # ============================================================
+        # 知识库内问题
+        # ============================================================
+
+        positive_count += 1
+
+        required_keywords = case.get(
+            "required_keywords",
+            [],
+        )
+
+        keyword_ok, missing_keywords = (
+            check_keywords(
+                answer,
+                required_keywords,
+            )
+        )
+
+        citation_ok = check_citation(
+            cited_results=cited_results,
+            expected_document=case[
+                "expected_document"
+            ],
+            expected_article=case[
+                "expected_article"
+            ],
+        )
+
+        if keyword_ok:
+            answer_passed += 1
+
+        if citation_ok:
+            citation_passed += 1
+
+        case_passed = (
+            keyword_ok
+            and citation_ok
+        )
+
+        if case_passed:
+            overall_passed += 1
+            status = "PASS"
+        else:
+            status = "FAIL"
+
+        print(f"     Status:          {status}")
+        print(
+            "     Answer Keywords: "
+            f"{'PASS' if keyword_ok else 'FAIL'}"
+        )
+        print(
+            "     Citation:        "
+            f"{'PASS' if citation_ok else 'FAIL'}"
+        )
+
+        if not keyword_ok:
+            print(
+                "     Missing:         "
+                + ", ".join(missing_keywords)
+            )
+
+        if not citation_ok:
+            print(
+                "     Expected:        "
+                f"{case['expected_document']} / "
+                f"{case['expected_article']}"
+            )
+
+            if cited_results:
+                print("     Actual Citations:")
+
+                for item in cited_results:
+                    print(
+                        "       - "
+                        f"{item.get('document_title')} / "
+                        f"{item.get('article')}"
+                    )
+            else:
+                print(
+                    "     Actual Citations: none"
+                )
+
+        if not case_passed:
+            print()
+            print("     Answer:")
+            print(f"     {answer}")
+
+    # ================================================================
+    # Summary
+    # ================================================================
+
+    total = len(cases)
+
+    answer_accuracy = (
+        answer_passed / positive_count * 100
+        if positive_count
+        else 0.0
+    )
+
+    citation_accuracy = (
+        citation_passed / positive_count * 100
+        if positive_count
+        else 0.0
+    )
+
+    rejection_accuracy = (
+        rejection_passed / negative_count * 100
+        if negative_count
+        else 0.0
+    )
+
+    overall_accuracy = (
+        overall_passed / total * 100
+        if total
+        else 0.0
+    )
+
+    print()
+    print("=" * 70)
+    print("RAG Evaluation Summary")
+    print("=" * 70)
+
+    print(
+        f"Answer Accuracy:    "
+        f"{answer_passed}/{positive_count} "
+        f"({answer_accuracy:.1f}%)"
+    )
+
+    print(
+        f"Citation Accuracy:  "
+        f"{citation_passed}/{positive_count} "
+        f"({citation_accuracy:.1f}%)"
+    )
+
+    print(
+        f"Rejection Accuracy: "
+        f"{rejection_passed}/{negative_count} "
+        f"({rejection_accuracy:.1f}%)"
+    )
+
+    print(
+        f"Overall:            "
+        f"{overall_passed}/{total} "
+        f"({overall_accuracy:.1f}%)"
+    )
+
+    print("=" * 70)
+
+
+if __name__ == "__main__":
+    main()

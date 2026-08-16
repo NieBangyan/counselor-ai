@@ -1,0 +1,49 @@
+[
+  {
+    "query": "我想请四天假，需要谁批准？",
+    "should_answer": true,
+    "expected_document": "清华大学本科生学籍管理规定",
+    "expected_article": "第十一条",
+    "required_keywords": [
+      "院系教学负责人"
+    ]
+  },
+  {
+    "query": "因病请假需要提供什么材料？",
+    "should_answer": true,
+    "expected_document": "清华大学本科生学籍管理规定",
+    "expected_article": "第十一条",
+    "required_keywords": [
+      "校医院",
+      "二级甲等以上医院",
+      "诊断证明"
+    ]
+  },
+  {
+    "query": "连续两个学期取得学分太少会怎么样？",
+    "should_answer": true,
+    "expected_document": "清华大学本科生学籍管理规定",
+    "expected_article": "第三十九条",
+    "required_keywords": [
+      "少于6学分",
+      "退学"
+    ]
+  },
+  {
+    "query": "满足什么条件才能本科毕业？",
+    "should_answer": true,
+    "expected_document": "清华大学本科生学籍管理规定",
+    "expected_article": "第四十五条",
+    "required_keywords": [
+      "毕业"
+    ]
+  },
+  {
+    "query": "明天天气怎么样？",
+    "should_answer": false
+  },
+  {
+    "query": "学校附近哪家火锅最好吃？",
+    "should_answer": false
+  }
+]
