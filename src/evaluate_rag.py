@@ -140,7 +140,25 @@ def main() -> None:
             negative_count += 1
 
             # 当前系统对知识库外问题应该在检索阶段直接无结果。
-            rejected = len(results) == 0
+            refusal_markers = [
+                "无法确认",
+                "无法根据",
+                "没有找到足够可靠",
+                "不能确认",
+            ]
+
+            answer_refused = any(
+                marker in answer
+                for marker in refusal_markers
+            ) 
+            citation_refused = (
+                len(cited_source_ids) == 0
+            )
+
+            rejected = (
+                answer_refused
+                and citation_refused
+            )
 
             if rejected:
                 rejection_passed += 1

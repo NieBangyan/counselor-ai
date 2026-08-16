@@ -45,5 +45,104 @@
   {
     "query": "学校附近哪家火锅最好吃？",
     "should_answer": false
+  },
+  {
+    "query": "选课流程是什么？",
+    "should_answer": true,
+    "expected_document": "清华大学选课管理办法",
+    "expected_article": "第十条",
+    "required_keywords": [
+      "选课流程"
+    ]
+  },
+  {
+    "query": "哪些专业可以开设辅修学位？",
+    "should_answer": true,
+    "expected_document": "清华大学本科生辅修学士学位专业教学管理办法",
+    "expected_article": "第三条",
+    "required_keywords": [
+      "辅修学位",
+      "本科"
+    ]
+  },
+  {
+    "query": "奖学金多久评一次",
+    "should_answer": true,
+    "expected_document": "清华大学学生奖学金管理规定",
+    "expected_article": "第十三条",
+    "required_keywords": [
+      "每学年",
+      "一次"
+    ]
+  },
+  {
+    "query": "GPA怎么计算？",
+    "should_answer": true,
+    "expected_document": "清华大学课程成绩管理办法",
+    "expected_article": "第八条",
+    "required_keywords": [
+      "GPA"
+    ]
+  },
+  {
+    "query": "忘记退课也没有参加开始gpa怎么办？",
+    "should_answer": true,
+    "expected_document": "清华大学课程成绩管理办法",
+    "expected_article": "第九条",
+    "required_keywords": [
+      "退课"
+    ]
+  },
+  {
+    "query": "退课怎么退？",
+    "should_answer": true,
+    "expected_document": "清华大学选课管理办法",
+    "expected_article": "第六条",
+    "required_keywords": [
+      "退课"
+    ]
+  },
+  {
+    "query": "哪些课程可以选课重修？",
+    "should_answer": true,
+    "expected_document": "清华大学选课管理办法",
+    "expected_article": "第五条",
+    "required_keywords": [
+      "重修"
+    ]
+  },
+  {
+    "query": "学位授予仪式服装有什么要求？",
+    "should_answer": true,
+    "expected_document": "清华大学学位授予工作实施细则",
+    "expected_article": "第三十五条",
+    "required_keywords": [
+      "学位服",
+      "规范"
+    ]
+  },
+  {
+    "query": "学校的荷花什么时候开？",
+    "should_answer": false
+  },
+  {
+    "query": "哪里有最好吃的粤菜？",
+    "should_answer": false
+  },
+  {
+    "query": "你知道怎么做川菜吗？",
+    "should_answer": false
+  },
+  {
+    "query": "可以帮我写代码吗？",
+    "should_answer": false
+  },
+  {
+    "query": "明天学校会不会停课？",
+    "should_answer": false
+  },
+  {
+    "query": "可以谈恋爱吗？",
+    "should_answer": false
   }
 ]

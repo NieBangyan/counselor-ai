@@ -43,16 +43,20 @@ class ChatRequest(BaseModel):
 
 
 class Source(BaseModel):
+    source_id: str
     document_title: str | None = None
     chapter: str | None = None
     article: str | None = None
-    pdf_pages: list[int] = Field(default_factory=list)
+    pdf_pages: list[int] = Field(
+        default_factory=list
+    )
     score: float
 
 
 class ChatResponse(BaseModel):
     answer: str
-    sources: list[Source]
+    retrieved_sources: list[Source]
+    cited_sources: list[Source]
 
 
 @app.get("/")
