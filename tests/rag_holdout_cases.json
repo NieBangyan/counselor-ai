@@ -1,0 +1,350 @@
+[
+  {
+    "query": "新生因为有事不能按时报到，会直接取消入学资格吗？",
+    "should_retrieve": true,
+    "expected_document": "清华大学本科生学籍管理规定",
+    "expected_article": "第三条",
+    "expected_keywords": [
+      "请假",
+      "放弃入学资格"
+    ]
+  },
+  {
+    "query": "保留入学资格最长一般能保留几年？",
+    "should_retrieve": true,
+    "expected_document": "清华大学本科生学籍管理规定",
+    "expected_article": "第五条",
+    "expected_keywords": [
+      "两年",
+      "保留入学资格"
+    ]
+  },
+  {
+    "query": "秋季学期没交学费还能注册吗？",
+    "should_retrieve": true,
+    "expected_document": "清华大学本科生学籍管理规定",
+    "expected_article": "第七条",
+    "expected_keywords": [
+      "缴纳学费",
+      "注册"
+    ]
+  },
+  {
+    "query": "四年制本科最多能在学校读几年？",
+    "should_retrieve": true,
+    "expected_document": "清华大学本科生学籍管理规定",
+    "expected_article": "第八条",
+    "expected_keywords": [
+      "学制加两年"
+    ]
+  },
+  {
+    "query": "想提前毕业，要提前多久申请？",
+    "should_retrieve": true,
+    "expected_document": "清华大学本科生学籍管理规定",
+    "expected_article": "第九条",
+    "expected_keywords": [
+      "6个月",
+      "书面申请"
+    ]
+  },
+  {
+    "query": "没请假连续两周不参加教学活动会怎样？",
+    "should_retrieve": true,
+    "expected_document": "清华大学本科生学籍管理规定",
+    "expected_article": "第十条",
+    "expected_keywords": [
+      "退学"
+    ]
+  },
+  {
+    "query": "请两天假找谁批？",
+    "should_retrieve": true,
+    "expected_document": "清华大学本科生学籍管理规定",
+    "expected_article": "第十一条",
+    "expected_keywords": [
+      "班主任"
+    ]
+  },
+  {
+    "query": "请病假必须交什么证明？",
+    "should_retrieve": true,
+    "expected_document": "清华大学本科生学籍管理规定",
+    "expected_article": "第十一条",
+    "expected_keywords": [
+      "诊断证明"
+    ]
+  },
+  {
+    "query": "GPA 3.3以上是不是可以申请自修课程？",
+    "should_retrieve": true,
+    "expected_document": "清华大学本科生学籍管理规定",
+    "expected_article": "第十八条",
+    "expected_keywords": [
+      "3.3",
+      "自修"
+    ]
+  },
+  {
+    "query": "一门课免修考试没过，之后怎么办？",
+    "should_retrieve": true,
+    "expected_document": "清华大学本科生学籍管理规定",
+    "expected_article": "第十九条",
+    "expected_keywords": [
+      "正常修课"
+    ]
+  },
+  {
+    "query": "已经考核合格的课程还能为了刷分重修吗？",
+    "should_retrieve": true,
+    "expected_document": "清华大学本科生学籍管理规定",
+    "expected_article": "第二十条",
+    "expected_keywords": [
+      "不得",
+      "重修"
+    ]
+  },
+  {
+    "query": "考试前突然生病，缓考要交什么？",
+    "should_retrieve": true,
+    "expected_document": "清华大学本科生学籍管理规定",
+    "expected_article": "第二十一条",
+    "expected_keywords": [
+      "缓考",
+      "诊断证明"
+    ]
+  },
+  {
+    "query": "一学期请假缺课达到多少需要休学？",
+    "should_retrieve": true,
+    "expected_document": "清华大学本科生学籍管理规定",
+    "expected_article": "第二十六条",
+    "expected_keywords": [
+      "三分之一",
+      "休学"
+    ]
+  },
+  {
+    "query": "普通休学累计原则上最多几年？",
+    "should_retrieve": true,
+    "expected_document": "清华大学本科生学籍管理规定",
+    "expected_article": "第二十七条",
+    "expected_keywords": [
+      "两年"
+    ]
+  },
+  {
+    "query": "因病休学后复学需要什么材料？",
+    "should_retrieve": true,
+    "expected_document": "清华大学本科生学籍管理规定",
+    "expected_article": "第三十一条",
+    "expected_keywords": [
+      "恢复健康",
+      "诊断证明"
+    ]
+  },
+  {
+    "query": "学校一般什么时候组织转专业？",
+    "should_retrieve": true,
+    "expected_document": "清华大学本科生学籍管理规定",
+    "expected_article": "第三十四条",
+    "expected_keywords": [
+      "每学年一次",
+      "春季学期"
+    ]
+  },
+  {
+    "query": "必修和限选课不合格累计多少学分可能被退学？",
+    "should_retrieve": true,
+    "expected_document": "清华大学本科生学籍管理规定",
+    "expected_article": "第三十九条",
+    "expected_keywords": [
+      "20学分",
+      "退学"
+    ]
+  },
+  {
+    "query": "退学以后五年内重新考回来，以前的学分还能认吗？",
+    "should_retrieve": true,
+    "expected_document": "清华大学本科生学籍管理规定",
+    "expected_article": "第四十四条",
+    "expected_keywords": [
+      "五年",
+      "学分",
+      "承认"
+    ]
+  },
+  {
+    "query": "结业以后还有机会换成毕业证吗？",
+    "should_retrieve": true,
+    "expected_document": "清华大学本科生学籍管理规定",
+    "expected_article": "第四十七条",
+    "expected_keywords": [
+      "结业证书",
+      "毕业证书"
+    ]
+  },
+  {
+    "query": "毕业证丢了学校能重新给证明吗？",
+    "should_retrieve": true,
+    "expected_document": "清华大学本科生学籍管理规定",
+    "expected_article": "第五十条",
+    "expected_keywords": [
+      "证明书",
+      "同等效力"
+    ]
+  },
+  {
+    "query": "GPA到底按什么公式算？",
+    "should_retrieve": true,
+    "expected_document": "清华大学课程成绩管理办法",
+    "expected_article": "第八条",
+    "expected_keywords": [
+      "课程学分",
+      "课程绩点",
+      "GPA"
+    ]
+  },
+  {
+    "query": "考试课一般有哪些等级成绩？",
+    "should_retrieve": true,
+    "expected_document": "清华大学课程成绩管理办法",
+    "expected_article": "第五条",
+    "expected_keywords": [
+      "A+",
+      "F"
+    ]
+  },
+  {
+    "query": "退课阶段在网上退课后，成绩单一般会记什么？",
+    "should_retrieve": true,
+    "expected_document": "清华大学选课管理办法",
+    "expected_article": "第六条",
+    "expected_keywords": [
+      "W"
+    ]
+  },
+  {
+    "query": "什么情况下才能重修选课？",
+    "should_retrieve": true,
+    "expected_document": "清华大学选课管理办法",
+    "expected_article": "第五条",
+    "expected_keywords": [
+      "考核不及格",
+      "缓考"
+    ]
+  },
+  {
+    "query": "奖学金通常一年评几次？",
+    "should_retrieve": true,
+    "expected_document": "清华大学学生奖学金管理规定",
+    "expected_article": "第十三条",
+    "expected_keywords": [
+      "每学年",
+      "一次"
+    ]
+  },
+  {
+    "query": "奖学金申请时弄虚作假会有什么后果？",
+    "should_retrieve": true,
+    "expected_document": "清华大学学生奖学金管理规定",
+    "expected_article": "第二十条",
+    "expected_keywords": [
+      "取消",
+      "参评资格"
+    ]
+  },
+  {
+    "query": "家庭经济困难学生分成几个困难等级？",
+    "should_retrieve": true,
+    "expected_document": "清华大学家庭经济困难本科生认定管理办法",
+    "expected_article": "第八条",
+    "expected_keywords": [
+      "一般困难",
+      "困难",
+      "特殊困难"
+    ]
+  },
+  {
+    "query": "家庭经济困难认定一般什么时候开展？",
+    "should_retrieve": true,
+    "expected_document": "清华大学家庭经济困难本科生认定管理办法",
+    "expected_article": "第十条",
+    "expected_keywords": [
+      "秋季学期",
+      "春季学期",
+      "动态调整"
+    ]
+  },
+  {
+    "query": "勤工助学一周最多原则上能做几个小时？",
+    "should_retrieve": true,
+    "expected_document": "清华大学学生勤工助学管理办法",
+    "expected_article": "第十条",
+    "expected_keywords": [
+      "八小时",
+      "四十小时"
+    ]
+  },
+  {
+    "query": "临时勤工助学做完以后多久应该发报酬？",
+    "should_retrieve": true,
+    "expected_document": "清华大学学生勤工助学管理办法",
+    "expected_article": "第十五条",
+    "expected_keywords": [
+      "十五个工作日"
+    ]
+  },
+  {
+    "query": "宿舍里可以用1200W的电器吗？",
+    "should_retrieve": true,
+    "expected_document": "清华大学学生公寓住宿管理办法",
+    "expected_article": "第二十一条",
+    "expected_keywords": [
+      "1000W",
+      "违章电器"
+    ]
+  },
+  {
+    "query": "学生对学校处分不服，最迟多久要提出校内申诉？",
+    "should_retrieve": true,
+    "expected_document": "清华大学学生申诉处理办法",
+    "expected_article": "第十六条",
+    "expected_keywords": [
+      "十日",
+      "书面申诉"
+    ]
+  },
+  {
+    "query": "今天北京空气质量怎么样？",
+    "should_retrieve": false
+  },
+  {
+    "query": "学校附近现在还有营业的咖啡店吗？",
+    "should_retrieve": false
+  },
+  {
+    "query": "明天清华会因为暴雨停课吗？",
+    "should_retrieve": false
+  },
+  {
+    "query": "帮我写一个Java版计算器。",
+    "should_retrieve": false
+  },
+  {
+    "query": "今年比特币还会涨吗？",
+    "should_retrieve": false
+  },
+  {
+    "query": "周末北京有什么新上映的电影？",
+    "should_retrieve": false
+  },
+  {
+    "query": "食堂今天中午二食堂有什么菜？",
+    "should_retrieve": false
+  },
+  {
+    "query": "帮我订一张明天去上海的高铁票。",
+    "should_retrieve": false
+  }
+]

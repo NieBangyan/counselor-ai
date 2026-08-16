@@ -1,3 +1,4 @@
+import argparse
 import json
 from pathlib import Path
 from typing import Any
@@ -7,25 +8,98 @@ from src.retrieval.retriever import Retriever
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-TEST_CASES_PATH = PROJECT_ROOT / "tests" / "rag_cases.json"
+
+DATASET_PATHS = {
+    "regression": PROJECT_ROOT / "tests" / "rag_cases.json",
+    "holdout": PROJECT_ROOT / "tests" / "rag_holdout_cases.json",
+}
 
 
-def load_test_cases() -> list[dict[str, Any]]:
-    if not TEST_CASES_PATH.exists():
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Evaluate the Counselor AI RAG system."
+    )
+
+    parser.add_argument(
+        "--dataset",
+        choices=DATASET_PATHS.keys(),
+        default="regression",
+        help=(
+            "选择评估数据集："
+            "regression 或 holdout。"
+        ),
+    )
+
+    return parser.parse_args()
+
+
+def load_test_cases(
+    dataset: str,
+) -> list[dict[str, Any]]:
+    test_cases_path = DATASET_PATHS[dataset]
+
+    if not test_cases_path.exists():
         raise FileNotFoundError(
-            f"找不到测试集：{TEST_CASES_PATH}"
+            f"找不到测试集：{test_cases_path}"
         )
 
-    with TEST_CASES_PATH.open(
+    with test_cases_path.open(
         "r",
         encoding="utf-8",
     ) as file:
         cases = json.load(file)
 
     if not isinstance(cases, list):
-        raise ValueError("测试集最外层必须是列表。")
+        raise ValueError(
+            "测试集最外层必须是列表。"
+        )
 
     return cases
+
+
+def should_answer_case(
+    case: dict[str, Any],
+) -> bool:
+    """
+    兼容两种测试集字段：
+
+    regression:
+        should_answer
+
+    holdout:
+        should_retrieve
+    """
+    if "should_answer" in case:
+        return bool(case["should_answer"])
+
+    if "should_retrieve" in case:
+        return bool(case["should_retrieve"])
+
+    raise ValueError(
+        f"测试用例缺少 should_answer / "
+        f"should_retrieve：{case.get('query')}"
+    )
+
+
+def get_required_keywords(
+    case: dict[str, Any],
+) -> list[str]:
+    """
+    兼容两种关键词字段：
+
+    regression:
+        required_keywords
+
+    holdout:
+        expected_keywords
+    """
+    if "required_keywords" in case:
+        return case["required_keywords"]
+
+    return case.get(
+        "expected_keywords",
+        [],
+    )
 
 
 def check_keywords(
@@ -49,7 +123,8 @@ def get_cited_results(
     cited_source_ids: list[str],
 ) -> list[dict[str, Any]]:
     """
-    将 S1 / S2 等引用 ID 映射回 Retriever 结果。
+    将 S1 / S2 等引用 ID
+    映射回 Retriever 结果。
     """
     cited_results: list[dict[str, Any]] = []
 
@@ -63,7 +138,9 @@ def get_cited_results(
             continue
 
         if 0 <= index < len(results):
-            cited_results.append(results[index])
+            cited_results.append(
+                results[index]
+            )
 
     return cited_results
 
@@ -74,7 +151,8 @@ def check_citation(
     expected_article: str,
 ) -> bool:
     """
-    检查最终实际引用中是否包含预期条款。
+    检查最终实际引用中
+    是否包含预期条款。
     """
     return any(
         item.get("document_title")
@@ -86,14 +164,25 @@ def check_citation(
 
 
 def main() -> None:
-    cases = load_test_cases()
+    args = parse_args()
 
-    print("正在加载 RAG 系统...")
+    dataset = args.dataset
+    cases = load_test_cases(dataset)
+
+    print(
+        f"正在加载 RAG 系统..."
+    )
 
     retriever = Retriever()
     client = DeepSeekClient()
 
     print("RAG 系统加载完成。")
+    print(
+        f"当前数据集：{dataset}"
+    )
+    print(
+        f"测试用例数：{len(cases)}"
+    )
 
     answer_passed = 0
     citation_passed = 0
@@ -105,12 +194,20 @@ def main() -> None:
 
     print()
     print("=" * 70)
-    print("RAG Evaluation")
+    print(
+        f"RAG Evaluation [{dataset}]"
+    )
     print("=" * 70)
 
-    for number, case in enumerate(cases, start=1):
+    for number, case in enumerate(
+        cases,
+        start=1,
+    ):
         query = case["query"]
-        should_answer = case["should_answer"]
+
+        should_answer = should_answer_case(
+            case
+        )
 
         results = retriever.retrieve(query)
 
@@ -120,9 +217,11 @@ def main() -> None:
         )
 
         answer = llm_result["answer"]
-        cited_source_ids = llm_result[
-            "cited_source_ids"
-        ]
+
+        cited_source_ids = llm_result.get(
+            "cited_source_ids",
+            [],
+        )
 
         cited_results = get_cited_results(
             results,
@@ -130,7 +229,9 @@ def main() -> None:
         )
 
         print()
-        print(f"{number:02d}. {query}")
+        print(
+            f"{number:02d}. {query}"
+        )
 
         # ============================================================
         # 知识库外问题
@@ -139,7 +240,6 @@ def main() -> None:
         if not should_answer:
             negative_count += 1
 
-            # 当前系统对知识库外问题应该在检索阶段直接无结果。
             refusal_markers = [
                 "无法确认",
                 "无法根据",
@@ -150,7 +250,8 @@ def main() -> None:
             answer_refused = any(
                 marker in answer
                 for marker in refusal_markers
-            ) 
+            )
+
             citation_refused = (
                 len(cited_source_ids) == 0
             )
@@ -167,7 +268,10 @@ def main() -> None:
             else:
                 status = "FAIL"
 
-            print(f"     Status:    {status}")
+            print(
+                f"     Status:    {status}"
+            )
+
             print(
                 "     Rejection: "
                 f"{'PASS' if rejected else 'FAIL'}"
@@ -175,7 +279,19 @@ def main() -> None:
 
             if not rejected:
                 print(
-                    f"     Retrieved: {len(results)}"
+                    f"     Retrieved: "
+                    f"{len(results)}"
+                )
+
+                print(
+                    f"     Citations: "
+                    f"{cited_source_ids}"
+                )
+
+                print()
+                print("     Answer:")
+                print(
+                    f"     {answer}"
                 )
 
             continue
@@ -186,9 +302,8 @@ def main() -> None:
 
         positive_count += 1
 
-        required_keywords = case.get(
-            "required_keywords",
-            [],
+        required_keywords = (
+            get_required_keywords(case)
         )
 
         keyword_ok, missing_keywords = (
@@ -225,11 +340,15 @@ def main() -> None:
         else:
             status = "FAIL"
 
-        print(f"     Status:          {status}")
+        print(
+            f"     Status:          {status}"
+        )
+
         print(
             "     Answer Keywords: "
             f"{'PASS' if keyword_ok else 'FAIL'}"
         )
+
         print(
             "     Citation:        "
             f"{'PASS' if citation_ok else 'FAIL'}"
@@ -238,7 +357,9 @@ def main() -> None:
         if not keyword_ok:
             print(
                 "     Missing:         "
-                + ", ".join(missing_keywords)
+                + ", ".join(
+                    missing_keywords
+                )
             )
 
         if not citation_ok:
@@ -249,7 +370,9 @@ def main() -> None:
             )
 
             if cited_results:
-                print("     Actual Citations:")
+                print(
+                    "     Actual Citations:"
+                )
 
                 for item in cited_results:
                     print(
@@ -264,8 +387,27 @@ def main() -> None:
 
         if not case_passed:
             print()
+            print("     Retrieved Candidates:")
+
+            if results:
+                for index, item in enumerate(
+                    results,
+                    start=1,
+                ):
+                    print(
+                        f"       #{index} "
+                        f"{item.get('document_title')} / "
+                        f"{item.get('article')} / "
+                        f"{item.get('score', 0):.4f}"
+                    )
+            else:
+                print("       none")
+
+            print()
             print("     Answer:")
-            print(f"     {answer}")
+            print(
+                f"     {answer}"
+            )
 
     # ================================================================
     # Summary
@@ -274,32 +416,43 @@ def main() -> None:
     total = len(cases)
 
     answer_accuracy = (
-        answer_passed / positive_count * 100
+        answer_passed
+        / positive_count
+        * 100
         if positive_count
         else 0.0
     )
 
     citation_accuracy = (
-        citation_passed / positive_count * 100
+        citation_passed
+        / positive_count
+        * 100
         if positive_count
         else 0.0
     )
 
     rejection_accuracy = (
-        rejection_passed / negative_count * 100
+        rejection_passed
+        / negative_count
+        * 100
         if negative_count
         else 0.0
     )
 
     overall_accuracy = (
-        overall_passed / total * 100
+        overall_passed
+        / total
+        * 100
         if total
         else 0.0
     )
 
     print()
     print("=" * 70)
-    print("RAG Evaluation Summary")
+    print(
+        f"RAG Evaluation Summary "
+        f"[{dataset}]"
+    )
     print("=" * 70)
 
     print(
