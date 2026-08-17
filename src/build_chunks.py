@@ -1,373 +1,365 @@
-import json
-import re
-from pathlib import Path
-from typing import Any
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+
+from src.counseling.counselor import Counselor
+from src.llm.deepseek_client import DeepSeekClient
+from src.retrieval.retriever import Retriever
+from src.routing.intent_router import IntentRouter
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+retriever: Retriever | None = None
+deepseek_client: DeepSeekClient | None = None
+intent_router: IntentRouter | None = None
+counselor: Counselor | None = None
 
-INPUT_PATH = PROJECT_ROOT / "storage" / "student_handbook.txt"
-OUTPUT_PATH = PROJECT_ROOT / "storage" / "handbook_chunks.json"
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global retriever
+    global deepseek_client
+    global intent_router
+    global counselor
+
+    print("正在加载 AI 辅导员系统...")
+
+    retriever = Retriever()
+    deepseek_client = DeepSeekClient()
+    intent_router = IntentRouter()
+    counselor = Counselor()
+
+    print("AI 辅导员系统加载完成。")
+
+    yield
+
+    print("AI 辅导员系统已关闭。")
 
 
-# 识别 extract_pdf.py 写入的页码标记：
-# ===== PDF第 18 页 =====
-PAGE_PATTERN = re.compile(
-    r"^=+\s*PDF第\s*(\d+)\s*页\s*=+$"
-)
-
-# 识别：
-# 第一章 总则
-# 第二章　入学与注册
-CHAPTER_PATTERN = re.compile(
-    r"^(第[一二三四五六七八九十百零〇两]+章)\s*(.*)$"
-)
-
-# 识别：
-# 第一条 为了规范……
-# 第十一条 学生请假……
-ARTICLE_PATTERN = re.compile(
-    r"^(第[一二三四五六七八九十百零〇两]+条)\s*(.*)$"
-)
-
-# 目录中的标题通常形如：
-# 四、清华大学本科生学籍管理规定……………………12
-TOC_TITLE_PATTERN = re.compile(
-    r"^[一二三四五六七八九十百零〇两]+、(.+?)(?:…+|\s+\d+\s*$)"
-)
-
-# 正文中的制度标题通常包含这些结尾。
-DOCUMENT_TITLE_ENDINGS = (
-    "规定",
-    "办法",
-    "细则",
-    "准则",
-    "公约",
-    "章程",
-    "要求",
-    "说明",
-    "时间表",
-    "对照表",
+app = FastAPI(
+    title="Counselor AI",
+    description="集学生政策问答与基础心理支持于一体的 AI 辅导员服务",
+    version="0.2.0",
+    lifespan=lifespan,
 )
 
 
-def clean_line(line: str) -> str:
-    """
-    清理单行文本中的多余空格和特殊空白字符。
-    """
-    line = line.replace("\u3000", " ")
-    line = line.replace("\xa0", " ")
-    line = re.sub(r"[ \t]+", " ", line)
-    return line.strip()
+# ============================================================
+# CORS
+# ============================================================
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=(
+        r"http://(localhost|127\.0\.0\.1):\d+"
+    ),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
-def is_noise_line(line: str) -> bool:
-    """
-    判断是否是页眉、页脚或无意义的独立页码。
-    """
-    if not line:
-        return True
-
-    # 例如：01、12、169
-    if re.fullmatch(r"\d{1,3}", line):
-        return True
-
-    # 常见页眉
-    if re.fullmatch(r"2025\s*年\s*学生手册", line):
-        return True
-
-    return False
+# ============================================================
+# Request / Response Models
+# ============================================================
 
 
-def looks_like_document_title(line: str) -> bool:
-    """
-    判断某一行是否可能是一个规章制度标题。
-
-    为避免误判，要求：
-    1. 字符较短；
-    2. 不以“第X章”或“第X条”开头；
-    3. 以常见制度名称结尾。
-    """
-    if not line:
-        return False
-
-    if len(line) > 45:
-        return False
-
-    if CHAPTER_PATTERN.match(line):
-        return False
-
-    if ARTICLE_PATTERN.match(line):
-        return False
-
-    # 排除修订说明和括号信息
-    if line.startswith(("（", "(", "经 ", "附件")):
-        return False
-
-    return line.endswith(DOCUMENT_TITLE_ENDINGS)
-
-
-def merge_content_lines(lines: list[str]) -> str:
-    """
-    把PDF中被换行拆开的正文重新连接起来。
-    """
-    cleaned: list[str] = []
-
-    for line in lines:
-        line = clean_line(line)
-
-        if not line or is_noise_line(line):
-            continue
-
-        cleaned.append(line)
-
-    if not cleaned:
-        return ""
-
-    # 中文规章文本通常不需要在每行之间加入空格。
-    return "".join(cleaned)
-
-
-def save_current_article(
-    chunks: list[dict[str, Any]],
-    document_title: str | None,
-    chapter: str | None,
-    article: str | None,
-    content_lines: list[str],
-    page_numbers: set[int],
-) -> None:
-    """
-    将当前正在收集的条款保存为一个chunk。
-    """
-    if not article:
-        return
-
-    content = merge_content_lines(content_lines)
-
-    if not content:
-        return
-
-    chunks.append(
-        {
-            "id": len(chunks) + 1,
-            "document_title": document_title,
-            "chapter": chapter,
-            "article": article,
-            "content": content,
-            "pdf_pages": sorted(page_numbers),
-        }
+class ChatRequest(BaseModel):
+    question: str = Field(
+        ...,
+        min_length=1,
+        max_length=500,
+        description="学生提出的问题",
     )
 
 
-def parse_handbook(text: str) -> list[dict[str, Any]]:
-    """
-    解析学生手册文本，按条款生成结构化数据。
-    """
-    chunks: list[dict[str, Any]] = []
+class Source(BaseModel):
+    source_id: str
 
-    current_page: int | None = None
-    current_document_title: str | None = None
-    current_chapter: str | None = None
-    current_article: str | None = None
+    document_title: str | None = None
+    chapter: str | None = None
+    article: str | None = None
 
-    current_content_lines: list[str] = []
-    current_article_pages: set[int] = set()
-
-    lines = text.splitlines()
-
-    for raw_line in lines:
-        line = clean_line(raw_line)
-
-        if not line:
-            continue
-
-        # 1. 页码标记
-        page_match = PAGE_PATTERN.match(line)
-
-        if page_match:
-            current_page = int(page_match.group(1))
-
-            # 当前条款跨页时，把新页码也记录进去。
-            if current_article is not None:
-                current_article_pages.add(current_page)
-
-            continue
-
-        if is_noise_line(line):
-            continue
-
-        # 2. 目录标题
-        toc_match = TOC_TITLE_PATTERN.match(line)
-
-        if toc_match:
-            # 目录只用于识别名称，不作为正文标题使用。
-            continue
-
-        # 3. 规章制度标题
-        if looks_like_document_title(line):
-            save_current_article(
-                chunks=chunks,
-                document_title=current_document_title,
-                chapter=current_chapter,
-                article=current_article,
-                content_lines=current_content_lines,
-                page_numbers=current_article_pages,
-            )
-
-            current_document_title = line
-            current_chapter = None
-            current_article = None
-            current_content_lines = []
-            current_article_pages = set()
-
-            continue
-
-        # 4. 章节标题
-        chapter_match = CHAPTER_PATTERN.match(line)
-
-        if chapter_match:
-            save_current_article(
-                chunks=chunks,
-                document_title=current_document_title,
-                chapter=current_chapter,
-                article=current_article,
-                content_lines=current_content_lines,
-                page_numbers=current_article_pages,
-            )
-
-            chapter_number = chapter_match.group(1)
-            chapter_name = chapter_match.group(2).strip()
-
-            current_chapter = (
-                f"{chapter_number} {chapter_name}"
-                if chapter_name
-                else chapter_number
-            )
-
-            current_article = None
-            current_content_lines = []
-            current_article_pages = set()
-
-            continue
-
-        # 5. 条款标题
-        article_match = ARTICLE_PATTERN.match(line)
-
-        if article_match:
-            save_current_article(
-                chunks=chunks,
-                document_title=current_document_title,
-                chapter=current_chapter,
-                article=current_article,
-                content_lines=current_content_lines,
-                page_numbers=current_article_pages,
-            )
-
-            current_article = article_match.group(1)
-            first_content = article_match.group(2).strip()
-
-            current_content_lines = []
-            current_article_pages = set()
-
-            if current_page is not None:
-                current_article_pages.add(current_page)
-
-            if first_content:
-                current_content_lines.append(first_content)
-
-            continue
-
-        # 6. 普通正文
-        if current_article is not None:
-            current_content_lines.append(line)
-
-            if current_page is not None:
-                current_article_pages.add(current_page)
-
-    # 保存最后一个条款
-    save_current_article(
-        chunks=chunks,
-        document_title=current_document_title,
-        chapter=current_chapter,
-        article=current_article,
-        content_lines=current_content_lines,
-        page_numbers=current_article_pages,
+    pdf_pages: list[int] = Field(
+        default_factory=list
     )
 
-    return chunks
+    score: float
 
 
-def validate_chunks(chunks: list[dict[str, Any]]) -> None:
-    """
-    做一些简单的数据质量检查。
-    """
-    missing_title = sum(
-        chunk["document_title"] is None
-        for chunk in chunks
+class ChatResponse(BaseModel):
+    intent: str
+    answer: str
+
+    retrieved_sources: list[Source] = Field(
+        default_factory=list
     )
 
-    missing_chapter = sum(
-        chunk["chapter"] is None
-        for chunk in chunks
+    cited_sources: list[Source] = Field(
+        default_factory=list
     )
 
-    short_content = sum(
-        len(chunk["content"]) < 15
-        for chunk in chunks
+
+# ============================================================
+# Basic Routes
+# ============================================================
+
+
+@app.get("/")
+def root():
+    return {
+        "name": "Counselor AI",
+        "version": "0.2.0",
+        "status": "running",
+        "capabilities": [
+            "policy",
+            "counseling",
+        ],
+    }
+
+
+@app.get("/health")
+def health():
+    ready = (
+        retriever is not None
+        and deepseek_client is not None
+        and intent_router is not None
+        and counselor is not None
     )
 
-    print(f"条款总数：{len(chunks)}")
-    print(f"缺少制度标题：{missing_title}")
-    print(f"缺少章节名称：{missing_chapter}")
-    print(f"正文少于15个字符：{short_content}")
+    return {
+        "status": (
+            "ok"
+            if ready
+            else "starting"
+        ),
+        "system_ready": ready,
+        "rag_ready": (
+            retriever is not None
+            and deepseek_client is not None
+        ),
+        "router_ready": (
+            intent_router is not None
+        ),
+        "counseling_ready": (
+            counselor is not None
+        ),
+    }
 
 
-def print_examples(chunks: list[dict[str, Any]], count: int = 3) -> None:
+# ============================================================
+# Helper Functions
+# ============================================================
+
+
+def build_sources(
+    results: list[dict],
+) -> list[Source]:
     """
-    打印前几条结果，方便检查。
+    将 Retriever 返回的数据转换为 API Source。
     """
-    print("\n结果预览：")
+    sources: list[Source] = []
 
-    for chunk in chunks[:count]:
-        print("-" * 60)
-        print(f"ID：{chunk['id']}")
-        print(f"文件：{chunk['document_title']}")
-        print(f"章节：{chunk['chapter']}")
-        print(f"条款：{chunk['article']}")
-        print(f"页码：{chunk['pdf_pages']}")
-        print(f"内容：{chunk['content'][:200]}")
-
-
-def main() -> None:
-    if not INPUT_PATH.exists():
-        raise FileNotFoundError(
-            f"找不到输入文件：{INPUT_PATH}\n"
-            "请先运行 src/extract_pdf.py。"
+    for index, item in enumerate(
+        results,
+        start=1,
+    ):
+        source = Source(
+            source_id=f"S{index}",
+            document_title=item.get(
+                "document_title"
+            ),
+            chapter=item.get(
+                "chapter"
+            ),
+            article=item.get(
+                "article"
+            ),
+            pdf_pages=item.get(
+                "pdf_pages",
+                [],
+            ),
+            score=float(
+                item.get(
+                    "score",
+                    0.0,
+                )
+            ),
         )
 
-    text = INPUT_PATH.read_text(encoding="utf-8")
+        sources.append(source)
 
-    chunks = parse_handbook(text)
-
-    OUTPUT_PATH.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    OUTPUT_PATH.write_text(
-        json.dumps(
-            chunks,
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-
-    validate_chunks(chunks)
-    print_examples(chunks)
-
-    print(f"\nJSON已保存到：{OUTPUT_PATH}")
+    return sources
 
 
-if __name__ == "__main__":
-    main()
+def get_cited_sources(
+    retrieved_sources: list[Source],
+    cited_source_ids: list[str],
+) -> list[Source]:
+    """
+    根据 S1 / S2 等 ID 提取真正被 LLM 引用的来源。
+    """
+    source_map = {
+        source.source_id: source
+        for source in retrieved_sources
+    }
+
+    return [
+        source_map[source_id]
+        for source_id in cited_source_ids
+        if source_id in source_map
+    ]
+
+
+# ============================================================
+# Chat
+# ============================================================
+
+
+@app.post(
+    "/chat",
+    response_model=ChatResponse,
+)
+def chat(
+    request: ChatRequest,
+) -> ChatResponse:
+    if (
+        retriever is None
+        or deepseek_client is None
+        or intent_router is None
+        or counselor is None
+    ):
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "AI counselor system "
+                "is not ready."
+            ),
+        )
+
+    question = request.question.strip()
+
+    if not question:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Question cannot be empty."
+            ),
+        )
+
+    try:
+        # ====================================================
+        # 1. Intent Routing
+        # ====================================================
+
+        intent = intent_router.classify(
+            question
+        )
+
+        # ====================================================
+        # 2. Counseling
+        # ====================================================
+
+        if intent == "counseling":
+            answer = counselor.answer(
+                question
+            )
+
+            return ChatResponse(
+                intent="counseling",
+                answer=answer,
+                retrieved_sources=[],
+                cited_sources=[],
+            )
+
+        # ====================================================
+        # 3. Other
+        # ====================================================
+
+        if intent == "other":
+            return ChatResponse(
+                intent="other",
+                answer=(
+                    "这个问题目前不属于我可以处理的"
+                    "学生政策问答或基础心理支持范围。"
+                    "\n\n"
+                    "你可以询问学生手册相关规定，"
+                    "例如请假、学籍、选课、成绩、"
+                    "奖学金、毕业等问题；"
+                    "也可以和我聊聊学习压力、情绪、"
+                    "焦虑、人际关系等困扰。"
+                ),
+                retrieved_sources=[],
+                cited_sources=[],
+            )
+
+        # ====================================================
+        # 4. Policy RAG
+        # ====================================================
+
+        results = retriever.retrieve(
+            question
+        )
+
+        llm_result = (
+            deepseek_client.answer(
+                question=question,
+                retrieval_results=results,
+            )
+        )
+
+        answer = llm_result["answer"]
+
+        cited_source_ids = (
+            llm_result.get(
+                "cited_source_ids",
+                [],
+            )
+        )
+
+        retrieved_sources = (
+            build_sources(
+                results
+            )
+        )
+
+        cited_sources = (
+            get_cited_sources(
+                retrieved_sources=(
+                    retrieved_sources
+                ),
+                cited_source_ids=(
+                    cited_source_ids
+                ),
+            )
+        )
+
+        return ChatResponse(
+            intent="policy",
+            answer=answer,
+            retrieved_sources=(
+                retrieved_sources
+            ),
+            cited_sources=(
+                cited_sources
+            ),
+        )
+
+    except HTTPException:
+        raise
+
+    except Exception as exc:
+        print(
+            f"/chat 处理失败："
+            f"{type(exc).__name__}: "
+            f"{exc}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "处理问题时发生内部错误，"
+                "请稍后重试。"
+            ),
+        ) from exc

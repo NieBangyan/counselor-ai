@@ -4,34 +4,60 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from src.counseling.counselor import Counselor
 from src.llm.deepseek_client import DeepSeekClient
 from src.retrieval.retriever import Retriever
+from src.routing.intent_router import IntentRouter
 
+
+# ============================================================
+# Global Services
+# ============================================================
 
 retriever: Retriever | None = None
 deepseek_client: DeepSeekClient | None = None
+intent_router: IntentRouter | None = None
+counselor: Counselor | None = None
+
+
+# ============================================================
+# Lifespan
+# ============================================================
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global retriever, deepseek_client
+    global retriever
+    global deepseek_client
+    global intent_router
+    global counselor
 
-    print("正在加载 RAG 系统...")
+    print("正在加载 AI 辅导员系统...")
 
     retriever = Retriever()
     deepseek_client = DeepSeekClient()
+    intent_router = IntentRouter()
+    counselor = Counselor()
 
-    print("RAG 系统加载完成。")
+    print("AI 辅导员系统加载完成。")
 
     yield
 
-    print("RAG 系统已关闭。")
+    print("AI 辅导员系统已关闭。")
+
+
+# ============================================================
+# FastAPI
+# ============================================================
 
 
 app = FastAPI(
     title="Counselor AI",
-    description="基于学生手册知识库的辅导员 AI 问答服务",
-    version="0.1.0",
+    description=(
+        "集学生手册政策问答与基础心理支持"
+        "于一体的 AI 辅导员服务"
+    ),
+    version="0.2.0",
     lifespan=lifespan,
 )
 
@@ -40,9 +66,12 @@ app = FastAPI(
 # CORS
 # ============================================================
 
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
+    allow_origin_regex=(
+        r"http://(localhost|127\.0\.0\.1):\d+"
+    ),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -78,6 +107,7 @@ class Source(BaseModel):
 
 
 class ChatResponse(BaseModel):
+    intent: str
     answer: str
 
     retrieved_sources: list[Source] = Field(
@@ -90,6 +120,73 @@ class ChatResponse(BaseModel):
 
 
 # ============================================================
+# Helper Functions
+# ============================================================
+
+
+def build_sources(
+    results: list[dict],
+) -> list[Source]:
+    """
+    将 Retriever 的结果转换成 API Source。
+    """
+    sources: list[Source] = []
+
+    for index, item in enumerate(
+        results,
+        start=1,
+    ):
+        source = Source(
+            source_id=f"S{index}",
+            document_title=item.get(
+                "document_title"
+            ),
+            chapter=item.get(
+                "chapter"
+            ),
+            article=item.get(
+                "article"
+            ),
+            pdf_pages=item.get(
+                "pdf_pages",
+                [],
+            ),
+            score=float(
+                item.get(
+                    "score",
+                    0.0,
+                )
+            ),
+        )
+
+        sources.append(source)
+
+    return sources
+
+
+def get_cited_sources(
+    retrieved_sources: list[Source],
+    cited_source_ids: list[str],
+) -> list[Source]:
+    """
+    根据 S1 / S2 等引用 ID，
+    找出真正被模型引用的来源。
+    """
+    source_map = {
+        source.source_id: source
+        for source in retrieved_sources
+    }
+
+    cited_sources = [
+        source_map[source_id]
+        for source_id in cited_source_ids
+        if source_id in source_map
+    ]
+
+    return cited_sources
+
+
+# ============================================================
 # Basic Routes
 # ============================================================
 
@@ -98,21 +195,46 @@ class ChatResponse(BaseModel):
 def root():
     return {
         "name": "Counselor AI",
-        "version": "0.1.0",
+        "version": "0.2.0",
         "status": "running",
+        "capabilities": [
+            "policy",
+            "counseling",
+        ],
     }
 
 
 @app.get("/health")
 def health():
-    ready = (
+    rag_ready = (
         retriever is not None
         and deepseek_client is not None
     )
 
+    router_ready = (
+        intent_router is not None
+    )
+
+    counseling_ready = (
+        counselor is not None
+    )
+
+    ready = (
+        rag_ready
+        and router_ready
+        and counseling_ready
+    )
+
     return {
-        "status": "ok" if ready else "starting",
-        "rag_ready": ready,
+        "status": (
+            "ok"
+            if ready
+            else "starting"
+        ),
+        "system_ready": ready,
+        "rag_ready": rag_ready,
+        "router_ready": router_ready,
+        "counseling_ready": counseling_ready,
     }
 
 
@@ -131,10 +253,15 @@ def chat(
     if (
         retriever is None
         or deepseek_client is None
+        or intent_router is None
+        or counselor is None
     ):
         raise HTTPException(
             status_code=503,
-            detail="RAG system is not ready.",
+            detail=(
+                "AI counselor system "
+                "is not ready."
+            ),
         )
 
     question = request.question.strip()
@@ -142,96 +269,112 @@ def chat(
     if not question:
         raise HTTPException(
             status_code=400,
-            detail="Question cannot be empty.",
+            detail=(
+                "Question cannot be empty."
+            ),
         )
 
     try:
-        # ----------------------------------------------------
-        # Retrieval
-        # ----------------------------------------------------
+        # ====================================================
+        # 1. Intent Routing
+        # ====================================================
+
+        intent = intent_router.classify(
+            question
+        )
+
+        # 临时保留，方便确认前端实际走了哪个分支。
+        print(
+            f"[ROUTER] {question} -> {intent}"
+        )
+
+        # ====================================================
+        # 2. Counseling
+        # ====================================================
+
+        if intent == "counseling":
+            answer = counselor.answer(
+                question
+            )
+
+            return ChatResponse(
+                intent="counseling",
+                answer=answer,
+                retrieved_sources=[],
+                cited_sources=[],
+            )
+
+        # ====================================================
+        # 3. Other
+        # ====================================================
+
+        if intent == "other":
+            return ChatResponse(
+                intent="other",
+                answer=(
+                    "这个问题目前不属于我可以处理的"
+                    "学生政策问答或基础心理支持范围。"
+                    "\n\n"
+                    "你可以询问学生手册相关规定，"
+                    "例如请假、学籍、选课、成绩、"
+                    "奖学金、毕业等问题；"
+                    "也可以和我聊聊学习压力、情绪、"
+                    "焦虑、人际关系等困扰。"
+                ),
+                retrieved_sources=[],
+                cited_sources=[],
+            )
+
+        # ====================================================
+        # 4. Policy RAG
+        # ====================================================
 
         results = retriever.retrieve(
             question
         )
 
-        # ----------------------------------------------------
-        # LLM
-        # ----------------------------------------------------
-
-        llm_result = deepseek_client.answer(
-            question=question,
-            retrieval_results=results,
+        llm_result = (
+            deepseek_client.answer(
+                question=question,
+                retrieval_results=results,
+            )
         )
 
         answer = llm_result["answer"]
 
-        cited_source_ids = llm_result.get(
-            "cited_source_ids",
-            [],
+        cited_source_ids = (
+            llm_result.get(
+                "cited_source_ids",
+                [],
+            )
         )
 
-        # ----------------------------------------------------
-        # Build source objects
-        # ----------------------------------------------------
+        retrieved_sources = (
+            build_sources(
+                results
+            )
+        )
 
-        retrieved_sources: list[Source] = []
-
-        for index, item in enumerate(
-            results,
-            start=1,
-        ):
-            source = Source(
-                source_id=f"S{index}",
-                document_title=item.get(
-                    "document_title"
+        cited_sources = (
+            get_cited_sources(
+                retrieved_sources=(
+                    retrieved_sources
                 ),
-                chapter=item.get(
-                    "chapter"
-                ),
-                article=item.get(
-                    "article"
-                ),
-                pdf_pages=item.get(
-                    "pdf_pages",
-                    [],
-                ),
-                score=float(
-                    item.get(
-                        "score",
-                        0.0,
-                    )
+                cited_source_ids=(
+                    cited_source_ids
                 ),
             )
-
-            retrieved_sources.append(
-                source
-            )
-
-        # ----------------------------------------------------
-        # Only sources actually cited by the LLM
-        # ----------------------------------------------------
-
-        source_map = {
-            source.source_id: source
-            for source in retrieved_sources
-        }
-
-        cited_sources = [
-            source_map[source_id]
-            for source_id in cited_source_ids
-            if source_id in source_map
-        ]
-
-        # ----------------------------------------------------
-        # Response
-        # ----------------------------------------------------
+        )
 
         return ChatResponse(
+            intent="policy",
             answer=answer,
             retrieved_sources=(
                 retrieved_sources
             ),
-            cited_sources=cited_sources,
+            cited_sources=(
+                cited_sources
+            ),
         )
 
     except HTTPException:
@@ -240,7 +383,8 @@ def chat(
     except Exception as exc:
         print(
             f"/chat 处理失败："
-            f"{type(exc).__name__}: {exc}"
+            f"{type(exc).__name__}: "
+            f"{exc}"
         )
 
         raise HTTPException(
