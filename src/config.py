@@ -1,5 +1,6 @@
 from pathlib import Path
 
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 DATA_DIR = PROJECT_ROOT / "data"
@@ -22,18 +23,17 @@ EMBEDDING_MODEL_NAME = str(
 )
 
 EMBEDDING_BATCH_SIZE = 64
-TOP_K =10
-MIN_RETRIEVAL_SCORE = 0.5
 
-RERANK_MAX_SCORE_GAP=0.06
-RERANK_MAX_RESULTS=3
+# ============================================================
+# Retrieval
+# ============================================================
 
-RERANK_MODEL_NAME = str(
-    PROJECT_ROOT
-    / "models"
-    / "bge-reranker-base"
-)
-EMBEDDING_RANK_WEIGHT = 0.65
-RERANK_RANK_WEIGHT = 0.35
+RETRIEVAL_CANDIDATE_K = 20
+MIN_RETRIEVAL_SCORE = 0.50
 
+# ============================================================
+# Lightweight reranking
+# ============================================================
+
+RERANK_MAX_SCORE_GAP = 0.06
 RERANK_MAX_RESULTS = 3
