@@ -1,0 +1,153 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family:
+    Inter,
+    "PingFang SC",
+    "Microsoft YaHei",
+    sans-serif;
+  background: #fbf8fd;
+  color: #a111a8;
+}
+
+button,
+textarea {
+  font: inherit;
+}
+
+.app {
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+}
+
+.chat-container {
+  width: 100%;
+  max-width: 900px;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  padding: 32px 24px 24px;
+}
+
+.header {
+  margin-bottom: 32px;
+}
+
+.header h1 {
+  margin: 0;
+  font-size: 32px;
+}
+
+.header p {
+  margin: 8px 0 0;
+  color: #6a3178;
+}
+
+.content {
+  flex: 1;
+}
+
+.welcome {
+  margin-top: 100px;
+  text-align: center;
+  color: #212021;
+}
+
+.welcome h2 {
+  color: #7f7c7f;
+}
+
+.status {
+  padding: 24px;
+  text-align: center;
+  color: #6b7280;
+}
+
+.error {
+  padding: 16px;
+  border-radius: 12px;
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.answer-card {
+  background: white;
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow:
+    0 8px 30px
+    rgba(0, 0, 0, 0.05);
+}
+
+.answer-card h2 {
+  margin-top: 0;
+}
+
+.answer-text {
+  line-height: 1.8;
+  white-space: pre-wrap;
+}
+
+.sources {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.sources h3 {
+  margin-top: 0;
+  font-size: 16px;
+}
+
+.source-card {
+  padding: 14px 16px;
+  margin-top: 12px;
+  border-radius: 10px;
+  background: #f9fafb;
+}
+
+.source-card p {
+  margin: 6px 0 0;
+  color: #6b7280;
+  font-size: 14px;
+}
+
+.input-area {
+  display: flex;
+  gap: 12px;
+  margin-top: 24px;
+  padding-top: 20px;
+}
+
+.input-area textarea {
+  flex: 1;
+  resize: none;
+  padding: 14px 16px;
+  border: 1px solid #d1d5db;
+  border-radius: 12px;
+  outline: none;
+  background: white;
+}
+
+.input-area textarea:focus {
+  border-color: #6b7280;
+}
+
+.input-area button {
+  align-self: stretch;
+  padding: 0 24px;
+  border: 0;
+  border-radius: 12px;
+  background: #111827;
+  color: white;
+  cursor: pointer;
+}
+
+.input-area button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
