@@ -24,6 +24,8 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    print("RAG 系统已关闭。")
+
 
 app = FastAPI(
     title="Counselor AI",
@@ -31,6 +33,11 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+
+# ============================================================
+# Request / Response Models
+# ============================================================
 
 
 class ChatRequest(BaseModel):
@@ -44,42 +51,73 @@ class ChatRequest(BaseModel):
 
 class Source(BaseModel):
     source_id: str
+
     document_title: str | None = None
     chapter: str | None = None
     article: str | None = None
+
     pdf_pages: list[int] = Field(
         default_factory=list
     )
+
     score: float
 
 
 class ChatResponse(BaseModel):
     answer: str
-    retrieved_sources: list[Source]
-    cited_sources: list[Source]
+
+    retrieved_sources: list[Source] = Field(
+        default_factory=list
+    )
+
+    cited_sources: list[Source] = Field(
+        default_factory=list
+    )
+
+
+# ============================================================
+# Basic Routes
+# ============================================================
 
 
 @app.get("/")
 def root():
     return {
         "name": "Counselor AI",
+        "version": "0.1.0",
         "status": "running",
     }
 
 
 @app.get("/health")
 def health():
+    ready = (
+        retriever is not None
+        and deepseek_client is not None
+    )
+
     return {
-        "status": "ok",
+        "status": "ok" if ready else "starting",
+        "rag_ready": ready,
     }
+
+
+# ============================================================
+# Chat
+# ============================================================
 
 
 @app.post(
     "/chat",
     response_model=ChatResponse,
 )
-def chat(request: ChatRequest):
-    if retriever is None or deepseek_client is None:
+def chat(
+    request: ChatRequest,
+) -> ChatResponse:
+    if (
+        retriever is None
+        or deepseek_client is None
+    ):
         raise HTTPException(
             status_code=503,
             detail="RAG system is not ready.",
@@ -94,31 +132,107 @@ def chat(request: ChatRequest):
         )
 
     try:
-        results = retriever.retrieve(question)
+        # ----------------------------------------------------
+        # Retrieval
+        # ----------------------------------------------------
 
-        answer = deepseek_client.answer(
+        results = retriever.retrieve(
+            question
+        )
+
+        # ----------------------------------------------------
+        # LLM
+        # ----------------------------------------------------
+
+        llm_result = deepseek_client.answer(
             question=question,
             retrieval_results=results,
         )
 
-        sources = [
-            Source(
-                document_title=item.get("document_title"),
-                chapter=item.get("chapter"),
-                article=item.get("article"),
-                pdf_pages=item.get("pdf_pages", []),
-                score=item["score"],
+        answer = llm_result["answer"]
+
+        cited_source_ids = llm_result.get(
+            "cited_source_ids",
+            [],
+        )
+
+        # ----------------------------------------------------
+        # Build source objects
+        # ----------------------------------------------------
+
+        retrieved_sources: list[Source] = []
+
+        for index, item in enumerate(
+            results,
+            start=1,
+        ):
+            source = Source(
+                source_id=f"S{index}",
+                document_title=item.get(
+                    "document_title"
+                ),
+                chapter=item.get(
+                    "chapter"
+                ),
+                article=item.get(
+                    "article"
+                ),
+                pdf_pages=item.get(
+                    "pdf_pages",
+                    [],
+                ),
+                score=float(
+                    item.get(
+                        "score",
+                        0.0,
+                    )
+                ),
             )
-            for item in results
+
+            retrieved_sources.append(
+                source
+            )
+
+        # ----------------------------------------------------
+        # Only sources actually cited by the LLM
+        # ----------------------------------------------------
+
+        source_map = {
+            source.source_id: source
+            for source in retrieved_sources
+        }
+
+        cited_sources = [
+            source_map[source_id]
+            for source_id in cited_source_ids
+            if source_id in source_map
         ]
+
+        # ----------------------------------------------------
+        # Response
+        # ----------------------------------------------------
 
         return ChatResponse(
             answer=answer,
-            sources=sources,
+            retrieved_sources=(
+                retrieved_sources
+            ),
+            cited_sources=cited_sources,
         )
 
+    except HTTPException:
+        raise
+
     except Exception as exc:
+        print(
+            f"/chat 处理失败："
+            f"{type(exc).__name__}: {exc}"
+        )
+
         raise HTTPException(
             status_code=500,
-            detail=str(exc),
+            detail=(
+                "处理问题时发生内部错误，"
+                "请稍后重试。"
+            ),
         ) from exc
