@@ -4,24 +4,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from src.counseling.counselor import Counselor
-from src.counseling.crisis_responder import CrisisResponder
-from src.counseling.safety_classifier import SafetyClassifier
-from src.llm.deepseek_client import DeepSeekClient
-from src.retrieval.retriever import Retriever
-from src.routing.intent_router import IntentRouter
-
-
-# ============================================================
-# Global Services
-# ============================================================
-
-retriever: Retriever | None = None
-deepseek_client: DeepSeekClient | None = None
-intent_router: IntentRouter | None = None
-counselor: Counselor | None = None
-safety_classifier: SafetyClassifier | None = None
-crisis_responder: CrisisResponder | None = None
+from src.services.assistant_service import AssistantService
+from src.wechat.router import router as wechat_router
 
 
 # ============================================================
@@ -31,21 +15,15 @@ crisis_responder: CrisisResponder | None = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global retriever
-    global deepseek_client
-    global intent_router
-    global counselor
-    global safety_classifier
-    global crisis_responder
-
     print("正在加载 AI 辅导员系统...")
 
-    retriever = Retriever()
-    deepseek_client = DeepSeekClient()
-    intent_router = IntentRouter()
-    counselor = Counselor()
-    safety_classifier = SafetyClassifier()
-    crisis_responder = CrisisResponder()
+    # 只创建一套 AI 服务。
+    # Web /chat 和微信 /wechat 共用这一套。
+    assistant_service = AssistantService()
+
+    app.state.assistant_service = (
+        assistant_service
+    )
 
     print("AI 辅导员系统加载完成。")
 
@@ -62,11 +40,22 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Counselor AI",
     description=(
-        "集学生手册政策问答与基础心理支持"
-        "于一体的 AI 辅导员服务"
+        "集学生手册政策问答、基础心理支持"
+        "与微信公众号接入于一体的 "
+        "AI 辅导员服务"
     ),
-    version="0.3.0",
+    version="0.5.0",
     lifespan=lifespan,
+)
+
+
+# ============================================================
+# WeChat
+# ============================================================
+
+
+app.include_router(
+    wechat_router
 )
 
 
@@ -117,6 +106,7 @@ class Source(BaseModel):
 class ChatResponse(BaseModel):
     intent: str
     safety_level: str | None = None
+
     answer: str
 
     retrieved_sources: list[Source] = Field(
@@ -129,7 +119,7 @@ class ChatResponse(BaseModel):
 
 
 # ============================================================
-# Helper Functions
+# Source Helpers
 # ============================================================
 
 
@@ -186,35 +176,6 @@ def get_cited_sources(
     ]
 
 
-def build_concern_answer(
-    question: str,
-) -> str:
-    """
-    concern 级别仍由 Counselor 回答，
-    但在最后追加更明确的真人支持建议。
-    """
-    if counselor is None:
-        raise RuntimeError(
-            "Counselor is not ready."
-        )
-
-    answer = counselor.answer(
-        question
-    )
-
-    support_message = (
-        "\n\n"
-        "另外，从你现在描述的状态来看，"
-        "如果这种感受已经持续了一段时间，"
-        "或者明显影响到睡眠、饮食、学习和日常生活，"
-        "建议你尽快和现实中可信任的人谈一谈，"
-        "例如朋友、家人、老师、辅导员，"
-        "也可以考虑联系学校的专业心理支持资源。"
-    )
-
-    return answer + support_message
-
-
 # ============================================================
 # Basic Routes
 # ============================================================
@@ -224,37 +185,26 @@ def build_concern_answer(
 def root():
     return {
         "name": "Counselor AI",
-        "version": "0.3.0",
+        "version": "0.5.0",
         "status": "running",
         "capabilities": [
             "policy",
             "counseling",
+            "safety",
+            "wechat",
         ],
     }
 
 
 @app.get("/health")
 def health():
-    rag_ready = (
-        retriever is not None
-        and deepseek_client is not None
+    service = getattr(
+        app.state,
+        "assistant_service",
+        None,
     )
 
-    router_ready = (
-        intent_router is not None
-    )
-
-    counseling_ready = (
-        counselor is not None
-        and safety_classifier is not None
-        and crisis_responder is not None
-    )
-
-    ready = (
-        rag_ready
-        and router_ready
-        and counseling_ready
-    )
+    ready = service is not None
 
     return {
         "status": (
@@ -263,9 +213,7 @@ def health():
             else "starting"
         ),
         "system_ready": ready,
-        "rag_ready": rag_ready,
-        "router_ready": router_ready,
-        "counseling_ready": counseling_ready,
+        "wechat_route_ready": True,
     }
 
 
@@ -281,14 +229,17 @@ def health():
 def chat(
     request: ChatRequest,
 ) -> ChatResponse:
-    if (
-        retriever is None
-        or deepseek_client is None
-        or intent_router is None
-        or counselor is None
-        or safety_classifier is None
-        or crisis_responder is None
-    ):
+    # --------------------------------------------------------
+    # Get shared service
+    # --------------------------------------------------------
+
+    service = getattr(
+        app.state,
+        "assistant_service",
+        None,
+    )
+
+    if service is None:
         raise HTTPException(
             status_code=503,
             detail=(
@@ -309,136 +260,42 @@ def chat(
 
     try:
         # ====================================================
-        # 1. Intent Routing
+        # Shared AI pipeline
         # ====================================================
 
-        intent = intent_router.classify(
+        result = service.handle_question(
             question
         )
 
-        print(
-            f"[ROUTER] {question} -> {intent}"
+        intent = result[
+            "intent"
+        ]
+
+        safety_level = result.get(
+            "safety_level"
+        )
+
+        answer = result[
+            "answer"
+        ]
+
+        retrieval_results = result.get(
+            "retrieval_results",
+            [],
+        )
+
+        cited_source_ids = result.get(
+            "cited_source_ids",
+            [],
         )
 
         # ====================================================
-        # 2. Counseling
+        # Build API sources
         # ====================================================
-
-        if intent == "counseling":
-            safety_level = (
-                safety_classifier.classify(
-                    question
-                )
-            )
-
-            print(
-                f"[SAFETY] {question} "
-                f"-> {safety_level}"
-            )
-
-            # ------------------------------------------------
-            # Crisis
-            # ------------------------------------------------
-
-            if safety_level == "crisis":
-                answer = (
-                    crisis_responder.respond(
-                        question
-                    )
-                )
-
-                return ChatResponse(
-                    intent="counseling",
-                    safety_level="crisis",
-                    answer=answer,
-                    retrieved_sources=[],
-                    cited_sources=[],
-                )
-
-            # ------------------------------------------------
-            # Concern
-            # ------------------------------------------------
-
-            if safety_level == "concern":
-                answer = (
-                    build_concern_answer(
-                        question
-                    )
-                )
-
-                return ChatResponse(
-                    intent="counseling",
-                    safety_level="concern",
-                    answer=answer,
-                    retrieved_sources=[],
-                    cited_sources=[],
-                )
-
-            # ------------------------------------------------
-            # Normal
-            # ------------------------------------------------
-
-            answer = counselor.answer(
-                question
-            )
-
-            return ChatResponse(
-                intent="counseling",
-                safety_level="normal",
-                answer=answer,
-                retrieved_sources=[],
-                cited_sources=[],
-            )
-
-        # ====================================================
-        # 3. Other
-        # ====================================================
-
-        if intent == "other":
-            return ChatResponse(
-                intent="other",
-                safety_level=None,
-                answer=(
-                    "这个问题目前不属于我可以处理的"
-                    "学生政策问答或基础心理支持范围。"
-                    "\n\n"
-                    "你可以询问学生手册相关规定，"
-                    "例如请假、学籍、选课、成绩、"
-                    "奖学金、毕业等问题；"
-                    "也可以和我聊聊学习压力、情绪、"
-                    "焦虑、人际关系等困扰。"
-                ),
-                retrieved_sources=[],
-                cited_sources=[],
-            )
-
-        # ====================================================
-        # 4. Policy RAG
-        # ====================================================
-
-        results = retriever.retrieve(
-            question
-        )
-
-        llm_result = (
-            deepseek_client.answer(
-                question=question,
-                retrieval_results=results,
-            )
-        )
-
-        answer = llm_result["answer"]
-
-        cited_source_ids = (
-            llm_result.get(
-                "cited_source_ids",
-                [],
-            )
-        )
 
         retrieved_sources = (
             build_sources(
-                results
+                retrieval_results
             )
         )
 
@@ -453,9 +310,13 @@ def chat(
             )
         )
 
+        # ====================================================
+        # Response
+        # ====================================================
+
         return ChatResponse(
-            intent="policy",
-            safety_level=None,
+            intent=intent,
+            safety_level=safety_level,
             answer=answer,
             retrieved_sources=(
                 retrieved_sources
