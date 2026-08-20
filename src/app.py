@@ -5,6 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from src.counseling.counselor import Counselor
+from src.counseling.crisis_responder import CrisisResponder
+from src.counseling.safety_classifier import SafetyClassifier
 from src.llm.deepseek_client import DeepSeekClient
 from src.retrieval.retriever import Retriever
 from src.routing.intent_router import IntentRouter
@@ -18,6 +20,8 @@ retriever: Retriever | None = None
 deepseek_client: DeepSeekClient | None = None
 intent_router: IntentRouter | None = None
 counselor: Counselor | None = None
+safety_classifier: SafetyClassifier | None = None
+crisis_responder: CrisisResponder | None = None
 
 
 # ============================================================
@@ -31,6 +35,8 @@ async def lifespan(app: FastAPI):
     global deepseek_client
     global intent_router
     global counselor
+    global safety_classifier
+    global crisis_responder
 
     print("正在加载 AI 辅导员系统...")
 
@@ -38,6 +44,8 @@ async def lifespan(app: FastAPI):
     deepseek_client = DeepSeekClient()
     intent_router = IntentRouter()
     counselor = Counselor()
+    safety_classifier = SafetyClassifier()
+    crisis_responder = CrisisResponder()
 
     print("AI 辅导员系统加载完成。")
 
@@ -57,7 +65,7 @@ app = FastAPI(
         "集学生手册政策问答与基础心理支持"
         "于一体的 AI 辅导员服务"
     ),
-    version="0.2.0",
+    version="0.3.0",
     lifespan=lifespan,
 )
 
@@ -108,6 +116,7 @@ class Source(BaseModel):
 
 class ChatResponse(BaseModel):
     intent: str
+    safety_level: str | None = None
     answer: str
 
     retrieved_sources: list[Source] = Field(
@@ -127,9 +136,6 @@ class ChatResponse(BaseModel):
 def build_sources(
     results: list[dict],
 ) -> list[Source]:
-    """
-    将 Retriever 的结果转换成 API Source。
-    """
     sources: list[Source] = []
 
     for index, item in enumerate(
@@ -168,22 +174,45 @@ def get_cited_sources(
     retrieved_sources: list[Source],
     cited_source_ids: list[str],
 ) -> list[Source]:
-    """
-    根据 S1 / S2 等引用 ID，
-    找出真正被模型引用的来源。
-    """
     source_map = {
         source.source_id: source
         for source in retrieved_sources
     }
 
-    cited_sources = [
+    return [
         source_map[source_id]
         for source_id in cited_source_ids
         if source_id in source_map
     ]
 
-    return cited_sources
+
+def build_concern_answer(
+    question: str,
+) -> str:
+    """
+    concern 级别仍由 Counselor 回答，
+    但在最后追加更明确的真人支持建议。
+    """
+    if counselor is None:
+        raise RuntimeError(
+            "Counselor is not ready."
+        )
+
+    answer = counselor.answer(
+        question
+    )
+
+    support_message = (
+        "\n\n"
+        "另外，从你现在描述的状态来看，"
+        "如果这种感受已经持续了一段时间，"
+        "或者明显影响到睡眠、饮食、学习和日常生活，"
+        "建议你尽快和现实中可信任的人谈一谈，"
+        "例如朋友、家人、老师、辅导员，"
+        "也可以考虑联系学校的专业心理支持资源。"
+    )
+
+    return answer + support_message
 
 
 # ============================================================
@@ -195,7 +224,7 @@ def get_cited_sources(
 def root():
     return {
         "name": "Counselor AI",
-        "version": "0.2.0",
+        "version": "0.3.0",
         "status": "running",
         "capabilities": [
             "policy",
@@ -217,6 +246,8 @@ def health():
 
     counseling_ready = (
         counselor is not None
+        and safety_classifier is not None
+        and crisis_responder is not None
     )
 
     ready = (
@@ -255,6 +286,8 @@ def chat(
         or deepseek_client is None
         or intent_router is None
         or counselor is None
+        or safety_classifier is None
+        or crisis_responder is None
     ):
         raise HTTPException(
             status_code=503,
@@ -283,7 +316,6 @@ def chat(
             question
         )
 
-        # 临时保留，方便确认前端实际走了哪个分支。
         print(
             f"[ROUTER] {question} -> {intent}"
         )
@@ -293,12 +325,66 @@ def chat(
         # ====================================================
 
         if intent == "counseling":
+            safety_level = (
+                safety_classifier.classify(
+                    question
+                )
+            )
+
+            print(
+                f"[SAFETY] {question} "
+                f"-> {safety_level}"
+            )
+
+            # ------------------------------------------------
+            # Crisis
+            # ------------------------------------------------
+
+            if safety_level == "crisis":
+                answer = (
+                    crisis_responder.respond(
+                        question
+                    )
+                )
+
+                return ChatResponse(
+                    intent="counseling",
+                    safety_level="crisis",
+                    answer=answer,
+                    retrieved_sources=[],
+                    cited_sources=[],
+                )
+
+            # ------------------------------------------------
+            # Concern
+            # ------------------------------------------------
+
+            if safety_level == "concern":
+                answer = (
+                    build_concern_answer(
+                        question
+                    )
+                )
+
+                return ChatResponse(
+                    intent="counseling",
+                    safety_level="concern",
+                    answer=answer,
+                    retrieved_sources=[],
+                    cited_sources=[],
+                )
+
+            # ------------------------------------------------
+            # Normal
+            # ------------------------------------------------
+
             answer = counselor.answer(
                 question
             )
 
             return ChatResponse(
                 intent="counseling",
+                safety_level="normal",
                 answer=answer,
                 retrieved_sources=[],
                 cited_sources=[],
@@ -311,6 +397,7 @@ def chat(
         if intent == "other":
             return ChatResponse(
                 intent="other",
+                safety_level=None,
                 answer=(
                     "这个问题目前不属于我可以处理的"
                     "学生政策问答或基础心理支持范围。"
@@ -368,6 +455,7 @@ def chat(
 
         return ChatResponse(
             intent="policy",
+            safety_level=None,
             answer=answer,
             retrieved_sources=(
                 retrieved_sources
