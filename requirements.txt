@@ -8,4 +8,5 @@ fastapi
 uvicorn
 jieba
 rank-bm25
-
+redis
+rq

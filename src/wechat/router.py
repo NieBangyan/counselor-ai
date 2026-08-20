@@ -6,31 +6,20 @@ import xml.etree.ElementTree as ET
 from dotenv import load_dotenv
 from fastapi import (
     APIRouter,
-    BackgroundTasks,
     HTTPException,
     Query,
     Request,
 )
 from fastapi.responses import PlainTextResponse
 
-from src.services.assistant_service import (
-    AssistantService,
-)
-from src.wechat.client import WeChatClient
+from src.queue.connection import wechat_queue
+from src.queue.tasks import process_wechat_message
 
 
 load_dotenv()
 
 
 router = APIRouter()
-
-
-# ============================================================
-# Shared WeChat Client
-# ============================================================
-
-
-wechat_client = WeChatClient()
 
 
 # ============================================================
@@ -140,83 +129,7 @@ def parse_wechat_xml(
 
 
 # ============================================================
-# Background Worker
-# ============================================================
-
-
-def process_wechat_text_message(
-    service: AssistantService,
-    open_id: str,
-    content: str,
-) -> None:
-    """
-    后台处理微信文本消息。
-
-    1. 调用 AI 辅导员
-    2. 获取回答
-    3. 使用客服消息接口主动发送给用户
-    """
-    try:
-        print(
-            f"[WECHAT PROCESS] "
-            f"{open_id}: {content}"
-        )
-
-        result = service.handle_question(
-            content
-        )
-
-        answer = result.get(
-            "answer",
-            "",
-        ).strip()
-
-        if not answer:
-            answer = (
-                "暂时没有生成有效回答，"
-                "请稍后再试。"
-            )
-
-        # 微信文本消息长度保护
-        max_length = 1800
-
-        if len(answer) > max_length:
-            answer = (
-                answer[:max_length]
-                + "\n\n（回答较长，已截断。）"
-            )
-
-        wechat_client.send_text_message(
-            open_id=open_id,
-            content=answer,
-        )
-
-    except Exception as exc:
-        print(
-            "[WECHAT ERROR] "
-            f"{type(exc).__name__}: {exc}"
-        )
-
-        # 后台任务出错时尝试给用户一个兜底提示
-        try:
-            wechat_client.send_text_message(
-                open_id=open_id,
-                content=(
-                    "AI 辅导员暂时无法处理这个问题，"
-                    "请稍后再试。"
-                ),
-            )
-        except Exception as send_exc:
-            print(
-                "[WECHAT SEND ERROR] "
-                f"{type(send_exc).__name__}: "
-                f"{send_exc}"
-            )
-
-
-# ============================================================
 # POST /wechat
-# 接收微信公众号消息
 # ============================================================
 
 
@@ -226,7 +139,6 @@ def process_wechat_text_message(
 )
 async def receive_wechat_message(
     request: Request,
-    background_tasks: BackgroundTasks,
     signature: str = Query(...),
     timestamp: str = Query(...),
     nonce: str = Query(...),
@@ -248,7 +160,7 @@ async def receive_wechat_message(
         )
 
     # --------------------------------------------------------
-    # 2. 读取并解析 XML
+    # 2. 读取 XML
     # --------------------------------------------------------
 
     raw_xml = await request.body()
@@ -268,26 +180,17 @@ async def receive_wechat_message(
     )
 
     # --------------------------------------------------------
-    # 3. 非文本消息
+    # 3. 只处理文本消息
     # --------------------------------------------------------
 
     if msg_type != "text":
-        if from_user:
-            background_tasks.add_task(
-                wechat_client.send_text_message,
-                from_user,
-                (
-                    "目前 AI 辅导员暂时只支持文字消息，"
-                    "请直接发送文字问题。"
-                ),
-            )
+        print(
+            f"[WECHAT IGNORE] "
+            f"user={from_user} "
+            f"type={msg_type}"
+        )
 
-        # 立即告诉微信服务器已成功接收
         return "success"
-
-    # --------------------------------------------------------
-    # 4. 文本消息
-    # --------------------------------------------------------
 
     content = message.get(
         "Content",
@@ -303,50 +206,39 @@ async def receive_wechat_message(
     )
 
     # --------------------------------------------------------
-    # 5. 获取共享 AssistantService
+    # 4. 加入 Redis / RQ
     # --------------------------------------------------------
 
-    service = getattr(
-        request.app.state,
-        "assistant_service",
-        None,
-    )
-
-    if service is None:
-        print(
-            "[WECHAT ERROR] "
-            "Assistant service is not ready."
+    try:
+        job = wechat_queue.enqueue(
+            process_wechat_message,
+            from_user,
+            content,
+            job_timeout=180,
+            result_ttl=500,
+            failure_ttl=86400,
         )
 
-        return "success"
-
-    if not isinstance(
-        service,
-        AssistantService,
-    ):
         print(
-            "[WECHAT ERROR] "
-            "Invalid assistant service."
+            f"[WECHAT ENQUEUE] "
+            f"user={from_user} "
+            f"job={job.id}"
         )
 
+    except Exception as exc:
+        print(
+            f"[WECHAT QUEUE ERROR] "
+            f"{type(exc).__name__}: "
+            f"{exc}"
+        )
+
+        # 即使 Redis 临时出错，
+        # 也先正常响应微信服务器，
+        # 防止微信不断重试同一请求。
         return "success"
 
     # --------------------------------------------------------
-    # 6. 加入后台任务
-    #
-    # 关键：
-    # 不在当前微信请求中等待 DeepSeek / RAG。
-    # --------------------------------------------------------
-
-    background_tasks.add_task(
-        process_wechat_text_message,
-        service,
-        from_user,
-        content,
-    )
-
-    # --------------------------------------------------------
-    # 7. 立即返回 success
+    # 5. 立即回复微信服务器
     # --------------------------------------------------------
 
     return "success"
