@@ -12,8 +12,13 @@ from fastapi import (
 )
 from fastapi.responses import PlainTextResponse
 
-from src.queue.connection import wechat_queue
-from src.queue.tasks import process_wechat_message
+from src.queue.connection import (
+    redis_connection,
+    wechat_queue,
+)
+from src.queue.tasks import (
+    process_wechat_message,
+)
 
 
 load_dotenv()
@@ -28,7 +33,9 @@ router = APIRouter()
 
 
 def get_wechat_token() -> str:
-    token = os.getenv("WECHAT_TOKEN")
+    token = os.getenv(
+        "WECHAT_TOKEN"
+    )
 
     if not token:
         raise RuntimeError(
@@ -44,6 +51,9 @@ def verify_wechat_signature(
     timestamp: str,
     nonce: str,
 ) -> bool:
+    """
+    验证微信公众号服务器签名。
+    """
     token = get_wechat_token()
 
     values = [
@@ -54,11 +64,18 @@ def verify_wechat_signature(
 
     values.sort()
 
-    raw_text = "".join(values)
+    raw_text = "".join(
+        values
+    )
 
-    calculated_signature = hashlib.sha1(
-        raw_text.encode("utf-8")
-    ).hexdigest()
+    calculated_signature = (
+        hashlib.sha1(
+            raw_text.encode(
+                "utf-8"
+            )
+        )
+        .hexdigest()
+    )
 
     return hmac.compare_digest(
         calculated_signature,
@@ -82,6 +99,13 @@ def verify_wechat_server(
     nonce: str = Query(...),
     echostr: str = Query(...),
 ):
+    """
+    微信公众平台配置服务器 URL 时，
+    微信服务器会调用这个接口。
+
+    验签成功后必须原样返回 echostr。
+    """
+
     valid = verify_wechat_signature(
         signature=signature,
         timestamp=timestamp,
@@ -91,7 +115,9 @@ def verify_wechat_server(
     if not valid:
         raise HTTPException(
             status_code=403,
-            detail="Invalid WeChat signature.",
+            detail=(
+                "Invalid WeChat signature."
+            ),
         )
 
     return echostr
@@ -105,17 +131,26 @@ def verify_wechat_server(
 def parse_wechat_xml(
     raw_xml: bytes,
 ) -> dict[str, str]:
+    """
+    将微信发送的 XML 转换成 dict。
+    """
+
     try:
         root = ET.fromstring(
-            raw_xml.decode("utf-8")
+            raw_xml.decode(
+                "utf-8"
+            )
         )
+
     except (
         ET.ParseError,
         UnicodeDecodeError,
     ) as exc:
         raise HTTPException(
             status_code=400,
-            detail="Invalid WeChat XML.",
+            detail=(
+                "Invalid WeChat XML."
+            ),
         ) from exc
 
     data: dict[str, str] = {}
@@ -129,7 +164,59 @@ def parse_wechat_xml(
 
 
 # ============================================================
+# Message Deduplication
+# ============================================================
+
+
+def is_duplicate_message(
+    msg_id: str,
+) -> bool:
+    """
+    使用 Redis 对微信 MsgId 去重。
+
+    Redis SET NX：
+        key 不存在时设置成功 -> 第一次收到
+        key 已存在 -> 重复消息
+
+    TTL 为 24 小时。
+    """
+
+    if not msg_id:
+        return False
+
+    dedup_key = (
+        f"wechat:message:{msg_id}"
+    )
+
+    try:
+        is_new_message = (
+            redis_connection.set(
+                dedup_key,
+                "1",
+                nx=True,
+                ex=86400,
+            )
+        )
+
+    except Exception as exc:
+        print(
+            "[WECHAT DEDUP ERROR] "
+            f"{type(exc).__name__}: "
+            f"{exc}"
+        )
+
+        # Redis 去重异常时，
+        # 不阻塞正常消息处理。
+        return False
+
+    return not bool(
+        is_new_message
+    )
+
+
+# ============================================================
 # POST /wechat
+# 接收微信公众号消息
 # ============================================================
 
 
@@ -143,9 +230,9 @@ async def receive_wechat_message(
     timestamp: str = Query(...),
     nonce: str = Query(...),
 ):
-    # --------------------------------------------------------
+    # ========================================================
     # 1. 验证微信签名
-    # --------------------------------------------------------
+    # ========================================================
 
     valid = verify_wechat_signature(
         signature=signature,
@@ -156,12 +243,14 @@ async def receive_wechat_message(
     if not valid:
         raise HTTPException(
             status_code=403,
-            detail="Invalid WeChat signature.",
+            detail=(
+                "Invalid WeChat signature."
+            ),
         )
 
-    # --------------------------------------------------------
-    # 2. 读取 XML
-    # --------------------------------------------------------
+    # ========================================================
+    # 2. 读取并解析 XML
+    # ========================================================
 
     raw_xml = await request.body()
 
@@ -179,35 +268,73 @@ async def receive_wechat_message(
         "",
     )
 
-    # --------------------------------------------------------
-    # 3. 只处理文本消息
-    # --------------------------------------------------------
+    # ========================================================
+    # 3. 目前只处理文本消息
+    # ========================================================
 
     if msg_type != "text":
         print(
-            f"[WECHAT IGNORE] "
+            "[WECHAT IGNORE] "
             f"user={from_user} "
             f"type={msg_type}"
         )
 
         return "success"
 
-    content = message.get(
-        "Content",
-        "",
-    ).strip()
+    # ========================================================
+    # 4. 提取文本内容
+    # ========================================================
+
+    content = (
+        message.get(
+            "Content",
+            "",
+        )
+        .strip()
+    )
 
     if not content:
         return "success"
 
-    print(
-        f"[WECHAT RECEIVE] "
-        f"{from_user}: {content}"
+    # ========================================================
+    # 5. MsgId 去重
+    # ========================================================
+
+    msg_id = (
+        message.get(
+            "MsgId",
+            "",
+        )
+        .strip()
     )
 
-    # --------------------------------------------------------
-    # 4. 加入 Redis / RQ
-    # --------------------------------------------------------
+    if is_duplicate_message(
+        msg_id
+    ):
+        print(
+            "[WECHAT DUPLICATE] "
+            f"user={from_user} "
+            f"msg_id={msg_id}"
+        )
+
+        # 一定继续返回 success，
+        # 告诉微信服务器消息已经处理。
+        return "success"
+
+    # ========================================================
+    # 6. 记录接收到的消息
+    # ========================================================
+
+    print(
+        "[WECHAT RECEIVE] "
+        f"user={from_user} "
+        f"msg_id={msg_id} "
+        f"content={content}"
+    )
+
+    # ========================================================
+    # 7. 加入 Redis / RQ 队列
+    # ========================================================
 
     try:
         job = wechat_queue.enqueue(
@@ -220,25 +347,30 @@ async def receive_wechat_message(
         )
 
         print(
-            f"[WECHAT ENQUEUE] "
+            "[WECHAT ENQUEUE] "
             f"user={from_user} "
+            f"msg_id={msg_id} "
             f"job={job.id}"
         )
 
     except Exception as exc:
         print(
-            f"[WECHAT QUEUE ERROR] "
+            "[WECHAT QUEUE ERROR] "
+            f"user={from_user} "
+            f"msg_id={msg_id} "
             f"{type(exc).__name__}: "
             f"{exc}"
         )
 
-        # 即使 Redis 临时出错，
-        # 也先正常响应微信服务器，
-        # 防止微信不断重试同一请求。
+        # 即使 Redis / RQ 暂时异常，
+        # 也返回 success。
+        #
+        # 否则微信服务器可能重复 POST，
+        # 造成重复消息风暴。
         return "success"
 
-    # --------------------------------------------------------
-    # 5. 立即回复微信服务器
-    # --------------------------------------------------------
+    # ========================================================
+    # 8. 立即回复微信服务器
+    # ========================================================
 
     return "success"
