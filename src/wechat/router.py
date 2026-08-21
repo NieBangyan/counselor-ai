@@ -14,10 +14,9 @@ from fastapi.responses import PlainTextResponse
 
 from src.queue.connection import (
     redis_connection,
-    wechat_queue,
 )
-from src.queue.tasks import (
-    process_wechat_message,
+from src.queue.user_queue import (
+    enqueue_user_message,
 )
 
 
@@ -337,13 +336,9 @@ async def receive_wechat_message(
     # ========================================================
 
     try:
-        job = wechat_queue.enqueue(
-            process_wechat_message,
-            from_user,
-            content,
-            job_timeout=180,
-            result_ttl=500,
-            failure_ttl=86400,
+        job = enqueue_user_message(
+            open_id=from_user,
+            content=content
         )
 
         print(
