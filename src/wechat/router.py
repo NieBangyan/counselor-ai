@@ -3,6 +3,10 @@ import hmac
 import os
 import xml.etree.ElementTree as ET
 
+from src.wechat.dedup import (
+    claim_wechat_message,
+)
+
 from dotenv import load_dotenv
 from fastapi import (
     APIRouter,
@@ -294,7 +298,28 @@ async def receive_wechat_message(
 
     if not content:
         return "success"
+    # ============================================================
+    # Message Deduplication
+    # ============================================================
 
+    msg_id = message.get(
+        "MsgId",
+        "",
+    ).strip()
+
+    if msg_id:
+        claimed = claim_wechat_message(
+            msg_id
+        )
+
+    if not claimed:
+        print(
+            "[WECHAT DUPLICATE] "
+            f"user={from_user} "
+            f"msg_id={msg_id}"
+        )
+
+        return "success"
     # ========================================================
     # 5. MsgId 去重
     # ========================================================
