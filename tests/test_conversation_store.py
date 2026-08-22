@@ -114,3 +114,66 @@ def test_conversation_store_trims_old_messages(
 
     finally:
         redis_connection.delete(key)
+
+def test_conversation_store_metadata(
+    redis_connection,
+):
+    store = ConversationStore()
+
+    conversation_id = (
+        "pytest-conversation-metadata"
+    )
+
+    key = (
+        f"conversation:{conversation_id}"
+    )
+
+    redis_connection.delete(
+        key
+    )
+
+    try:
+        store.append(
+            conversation_id,
+            "user",
+            "最近学习压力很大",
+            intent="counseling",
+            safety_level="normal",
+        )
+
+        store.append(
+            conversation_id,
+            "assistant",
+            "最近主要是哪方面压力比较大？",
+            intent="counseling",
+            safety_level="normal",
+        )
+
+        history = (
+            store.get_history(
+                conversation_id
+            )
+        )
+
+        assert len(history) == 2
+
+        assert history[0] == {
+            "role": "user",
+            "content": "最近学习压力很大",
+            "intent": "counseling",
+            "safety_level": "normal",
+        }
+
+        assert history[1] == {
+            "role": "assistant",
+            "content": (
+                "最近主要是哪方面压力比较大？"
+            ),
+            "intent": "counseling",
+            "safety_level": "normal",
+        }
+
+    finally:
+        redis_connection.delete(
+            key
+        )

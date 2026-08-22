@@ -87,6 +87,85 @@ other
 - 只能输出 policy、counseling 或 other。
 """.strip()
 
+CONTEXT_ROUTER_SYSTEM_PROMPT = """
+你是高校 AI 辅导员系统的多轮对话意图分类器。
+
+当前学生消息单独判断时无法明确归类。
+你的任务是结合最近的对话历史，判断当前消息
+是否是在继续之前的话题。
+
+只允许输出以下三个标签之一：
+
+policy
+counseling
+other
+
+判断原则：
+
+1. 如果当前消息明显是在继续之前的学校政策问题，
+输出 policy。
+
+例如：
+
+历史：
+学生：奖学金怎么申请？
+助手：……
+
+当前：
+“那什么时候截止？”
+→ policy
+
+
+2. 如果当前消息明显是在继续之前的情绪、
+压力、焦虑、人际关系等心理支持话题，
+输出 counseling。
+
+例如：
+
+历史：
+学生：最近学习压力特别大。
+助手：最近主要是哪方面压力比较大？
+
+当前：
+“主要是数学。”
+→ counseling
+
+
+3. 如果当前消息与之前的话题没有明显关系，
+或者只是普通问候、闲聊、其他领域问题，
+输出 other。
+
+例如：
+
+历史：
+学生：最近学习压力特别大。
+助手：……
+
+当前：
+“你好。”
+→ other
+
+历史：
+学生：奖学金怎么申请？
+助手：……
+
+当前：
+“帮我写 Python。”
+→ other
+
+
+重要规则：
+
+- 不要因为存在历史记录就自动继承上一轮意图。
+- 只有当前消息明显依赖历史才能理解时，
+  才继承之前的话题类型。
+- 当前消息表达的新意图优先于历史。
+- 不要回答问题。
+- 不要解释。
+- 不要输出 Markdown。
+- 只能输出 policy、counseling 或 other。
+""".strip()
+
 
 class IntentRouter:
     def __init__(self) -> None:
@@ -176,4 +255,130 @@ class IntentRouter:
 
         # 两次调用都没有得到合法结果时，
         # 使用 other 作为安全兜底。
+        return "other"
+    def classify_with_context(
+        self,
+        message: str,
+        history: list[dict[str, str]],
+    ) -> Intent:
+        """
+        当当前消息单独无法明确分类时，
+        使用最近的会话历史进行二次判断。
+
+        该方法不应该替代 classify()，
+        只作为 other 情况下的补充判断。
+        """
+
+        message = message.strip()
+
+        if not message:
+            return "other"
+
+        if not history:
+            return "other"
+
+        allowed_intents = (
+            "policy",
+            "counseling",
+            "other",
+        )
+
+        # --------------------------------------------
+        # 构造简短历史
+        # --------------------------------------------
+
+        history_lines: list[str] = []
+
+        for item in history[-4:]:
+            role = item.get(
+                "role",
+                "",
+            )
+
+            content = (
+                item.get(
+                    "content",
+                    "",
+                )
+                .strip()
+            )
+
+            if not content:
+                continue
+
+            if role == "user":
+                role_name = "学生"
+            elif role == "assistant":
+                role_name = "助手"
+            else:
+                continue
+
+            history_lines.append(
+                f"{role_name}：{content}"
+            )
+
+        if not history_lines:
+            return "other"
+
+        context = "\n".join(
+            history_lines
+        )
+
+        user_prompt = (
+            "最近对话：\n"
+            f"{context}\n\n"
+            "当前学生消息：\n"
+            f"{message}"
+        )
+
+        # --------------------------------------------
+        # LLM
+        # --------------------------------------------
+
+        for _ in range(2):
+            response = (
+                self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": (
+                                CONTEXT_ROUTER_SYSTEM_PROMPT
+                            ),
+                        },
+                        {
+                            "role": "user",
+                            "content": user_prompt,
+                        },
+                    ],
+                    max_tokens=50,
+                    temperature=0,
+                )
+            )
+
+            result = (
+                response
+                .choices[0]
+                .message
+                .content
+            )
+
+            if not result:
+                continue
+
+            intent = (
+                result
+                .strip()
+                .lower()
+            )
+
+            if intent in allowed_intents:
+                return intent
+
+            for allowed_intent in (
+                allowed_intents
+            ):
+                if allowed_intent in intent:
+                    return allowed_intent
+
         return "other"

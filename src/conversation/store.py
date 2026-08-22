@@ -76,11 +76,35 @@ class ConversationStore:
             ):
                 continue
 
+            message = {
+                "role": role,
+                "content": content,
+            }
+
+            intent = item.get(
+                "intent"
+            )
+
+            safety_level = item.get(
+                "safety_level"
+            )
+
+            if isinstance(
+                intent,
+                str,
+            ):
+                message["intent"] = intent
+
+            if isinstance(
+                safety_level,
+                str,
+            ):
+                message[
+                    "safety_level"
+                ] = safety_level
+
             history.append(
-                {
-                    "role": role,
-                    "content": content,
-                }
+                message
             )
 
         return history
@@ -90,6 +114,8 @@ class ConversationStore:
         conversation_id: str,
         role: str,
         content: str,
+        intent: str | None = None,
+        safety_level: str | None = None,
     ) -> None:
         if not conversation_id:
             return
@@ -107,15 +133,25 @@ class ConversationStore:
         if not content:
             return
 
+        message = {
+            "role": role,
+            "content": content,
+        }
+
+        if intent is not None:
+            message["intent"] = intent
+
+        if safety_level is not None:
+            message[
+                "safety_level"
+            ] = safety_level
+
         key = self._key(
             conversation_id
         )
 
         value = json.dumps(
-            {
-                "role": role,
-                "content": content,
-            },
+            message,
             ensure_ascii=False,
         )
 
@@ -128,30 +164,15 @@ class ConversationStore:
             value,
         )
 
-        # 只保留最近 6 条
         pipeline.ltrim(
             key,
             -MAX_MESSAGES,
             -1,
         )
 
-        # 每次对话刷新 30 分钟 TTL
         pipeline.expire(
             key,
             CONVERSATION_TTL,
         )
 
         pipeline.execute()
-
-    def clear(
-        self,
-        conversation_id: str,
-    ) -> None:
-        if not conversation_id:
-            return
-
-        redis_connection.delete(
-            self._key(
-                conversation_id
-            )
-        )
