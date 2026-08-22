@@ -22,9 +22,23 @@ def build_wechat_xml(
 """.strip()
 
 
-def test_duplicate_wechat_message_only_enqueues_once(
-    redis_connection,
-):
+def test_duplicate_wechat_message_only_enqueues_once():
+    """
+    验证微信 Router 的去重行为：
+
+    第一次：
+        claim_wechat_message() -> True
+        正常 enqueue
+
+    第二次：
+        claim_wechat_message() -> False
+        识别为重复消息
+        不再 enqueue
+
+    Redis SET NX 本身的行为由
+    test_wechat_dedup.py 单独测试。
+    """
+
     app = FastAPI()
 
     app.include_router(
@@ -39,116 +53,127 @@ def test_duplicate_wechat_message_only_enqueues_once(
         "pytest-route-dedup-001"
     )
 
-    dedup_key = (
-        f"wechat:message:{msg_id}"
-    )
-
-    redis_connection.delete(
-        dedup_key
-    )
-
     xml_body = build_wechat_xml(
         msg_id=msg_id,
         content="测试重复消息",
     )
 
-    try:
-        with (
-            patch(
-                "src.wechat.router."
-                "verify_wechat_signature",
-                return_value=True,
-            ),
-            patch(
-                "src.wechat.router."
-                "enqueue_user_message"
-            ) as mock_enqueue,
-        ):
-            # 模拟 enqueue 返回一个有 id 的 Job
-            mock_job = (
-                mock_enqueue.return_value
-            )
+    with (
+        patch(
+            "src.wechat.router."
+            "verify_wechat_signature",
+            return_value=True,
+        ),
+        patch(
+            "src.wechat.router."
+            "claim_wechat_message",
+            side_effect=[
+                True,
+                False,
+            ],
+        ) as mock_claim,
+        patch(
+            "src.wechat.router."
+            "enqueue_user_message"
+        ) as mock_enqueue,
+    ):
+        # ====================================================
+        # Mock RQ Job
+        # ====================================================
 
-            mock_job.id = (
-                "fake-job-id"
-            )
+        mock_job = (
+            mock_enqueue.return_value
+        )
 
-            # ---------------------------------------------
-            # 第一次 POST
-            # ---------------------------------------------
+        mock_job.id = (
+            "fake-job-id"
+        )
 
-            response_1 = client.post(
-                "/wechat",
-                params={
-                    "signature": "test",
-                    "timestamp": "123",
-                    "nonce": "456",
-                },
-                content=xml_body,
-                headers={
-                    "Content-Type":
-                        "application/xml",
-                },
-            )
+        # ====================================================
+        # 第一次 POST
+        # ====================================================
 
-            # ---------------------------------------------
-            # 第二次完全相同的 POST
-            # ---------------------------------------------
+        response_1 = client.post(
+            "/wechat",
+            params={
+                "signature": "test",
+                "timestamp": "123",
+                "nonce": "456",
+            },
+            content=xml_body,
+            headers={
+                "Content-Type":
+                    "application/xml",
+            },
+        )
 
-            response_2 = client.post(
-                "/wechat",
-                params={
-                    "signature": "test",
-                    "timestamp": "123",
-                    "nonce": "456",
-                },
-                content=xml_body,
-                headers={
-                    "Content-Type":
-                        "application/xml",
-                },
-            )
+        # ====================================================
+        # 第二次完全相同的 POST
+        # ====================================================
 
-            # ---------------------------------------------
-            # Response
-            # ---------------------------------------------
+        response_2 = client.post(
+            "/wechat",
+            params={
+                "signature": "test",
+                "timestamp": "123",
+                "nonce": "456",
+            },
+            content=xml_body,
+            headers={
+                "Content-Type":
+                    "application/xml",
+            },
+        )
 
-            assert (
-                response_1.status_code
-                == 200
-            )
+        # ====================================================
+        # Response
+        # ====================================================
 
-            assert (
-                response_2.status_code
-                == 200
-            )
+        assert (
+            response_1.status_code
+            == 200
+        )
 
-            assert (
-                response_1.text
-                == "success"
-            )
+        assert (
+            response_2.status_code
+            == 200
+        )
 
-            assert (
-                response_2.text
-                == "success"
-            )
+        assert (
+            response_1.text
+            == "success"
+        )
 
-            # ---------------------------------------------
-            # 最关键：
-            # 同一个 MsgId 只能入队一次
-            # ---------------------------------------------
+        assert (
+            response_2.text
+            == "success"
+        )
 
-            assert (
-                mock_enqueue.call_count
-                == 1
-            )
+        # ====================================================
+        # Dedup
+        # ====================================================
 
-            mock_enqueue.assert_called_once_with(
-                open_id="test-open-id",
-                content="测试重复消息",
-            )
+        # 两次请求都应该进行去重检查。
+        assert (
+            mock_claim.call_count
+            == 2
+        )
 
-    finally:
-        redis_connection.delete(
-            dedup_key
+        mock_claim.assert_any_call(
+            msg_id
+        )
+
+        # ====================================================
+        # Queue
+        # ====================================================
+
+        # 但只能真正入队一次。
+        assert (
+            mock_enqueue.call_count
+            == 1
+        )
+
+        mock_enqueue.assert_called_once_with(
+            open_id="test-open-id",
+            content="测试重复消息",
         )
