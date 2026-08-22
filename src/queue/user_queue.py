@@ -1,18 +1,45 @@
-from rq.job import Job
+from rq import (
+    Callback,
+    Retry,
+)
+from rq.job import (
+    Dependency,
+    Job,
+)
 
 from src.queue.connection import (
     redis_connection,
     wechat_queue,
 )
 from src.queue.tasks import (
+    handle_wechat_job_failure,
     process_wechat_message,
 )
 
+
+# ============================================================
+# Configuration
+# ============================================================
 
 USER_JOB_TTL = 86400
 
 USER_LOCK_TIMEOUT = 10
 USER_LOCK_BLOCKING_TIMEOUT = 5
+
+JOB_TIMEOUT = 180
+JOB_RESULT_TTL = 500
+JOB_FAILURE_TTL = 86400
+
+JOB_RETRY_INTERVALS = [
+    5,
+    15,
+    30,
+]
+
+
+# ============================================================
+# User Queue
+# ============================================================
 
 
 def enqueue_user_message(
@@ -23,12 +50,19 @@ def enqueue_user_message(
     微信用户消息入队。
 
     同一用户：
-        按消息进入顺序建立 RQ dependency，
-        保证串行处理。
+        严格按照消息顺序执行。
 
     不同用户：
-        使用不同 Redis Lock，
-        可以并发入队、并发执行。
+        可以由不同 Worker 并发执行。
+
+    任务失败：
+        自动 Retry。
+
+    前一个任务最终失败：
+        后一个任务仍允许继续。
+
+    最终失败：
+        failure callback 给用户发送一次兜底提示。
     """
 
     user_key = (
@@ -40,7 +74,7 @@ def enqueue_user_message(
     )
 
     # ========================================================
-    # 同一用户入队过程加 Redis 分布式锁
+    # 1. 同一用户入队锁
     # ========================================================
 
     lock = redis_connection.lock(
@@ -62,7 +96,7 @@ def enqueue_user_message(
 
     try:
         # ====================================================
-        # 1. 找这个用户上一个任务
+        # 2. 查找这个用户上一个 Job
         # ====================================================
 
         previous_job_id = (
@@ -75,17 +109,25 @@ def enqueue_user_message(
 
         if previous_job_id:
             try:
+                if isinstance(
+                    previous_job_id,
+                    bytes,
+                ):
+                    previous_job_id = (
+                        previous_job_id.decode(
+                            "utf-8"
+                        )
+                    )
+
                 previous_job = Job.fetch(
-                    previous_job_id.decode(
-                        "utf-8"
-                    ),
+                    previous_job_id,
                     connection=(
                         redis_connection
                     ),
                 )
 
-                # 已经彻底结束的任务
-                # 不需要继续依赖。
+                # 已经结束的 Job
+                # 不需要再作为 dependency。
                 if (
                     previous_job.is_finished
                     or previous_job.is_failed
@@ -105,19 +147,42 @@ def enqueue_user_message(
                 previous_job = None
 
         # ====================================================
-        # 2. 构造新任务
+        # 3. 基础入队参数
         # ====================================================
 
         enqueue_kwargs = {
-            "job_timeout": 180,
-            "result_ttl": 500,
-            "failure_ttl": 86400,
+            "job_timeout": JOB_TIMEOUT,
+            "result_ttl": JOB_RESULT_TTL,
+            "failure_ttl": JOB_FAILURE_TTL,
+
+            "retry": Retry(
+                max=3,
+                interval=(
+                    JOB_RETRY_INTERVALS
+                ),
+            ),
+
+            "on_failure": Callback(
+                handle_wechat_job_failure,
+                timeout=15,
+            ),
         }
 
+        # ====================================================
+        # 4. 同用户 dependency
+        # ====================================================
+
         if previous_job is not None:
+            dependency = Dependency(
+                jobs=[
+                    previous_job
+                ],
+                allow_failure=True,
+            )
+
             enqueue_kwargs[
                 "depends_on"
-            ] = previous_job
+            ] = dependency
 
             print(
                 "[USER QUEUE] "
@@ -126,7 +191,7 @@ def enqueue_user_message(
             )
 
         # ====================================================
-        # 3. 入队
+        # 5. 入队
         # ====================================================
 
         job = wechat_queue.enqueue(
@@ -137,7 +202,7 @@ def enqueue_user_message(
         )
 
         # ====================================================
-        # 4. 原子区间内更新当前用户最后一个任务
+        # 6. 更新当前用户最后一个 Job
         # ====================================================
 
         redis_connection.set(
@@ -155,7 +220,17 @@ def enqueue_user_message(
         return job
 
     finally:
+        # ====================================================
+        # 7. Redis Lock release
+        # ====================================================
+
         try:
             lock.release()
-        except Exception:
-            pass
+
+        except Exception as exc:
+            print(
+                "[USER QUEUE] "
+                "lock release warning: "
+                f"{type(exc).__name__}: "
+                f"{exc}"
+            )

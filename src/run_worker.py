@@ -23,7 +23,7 @@ def main() -> None:
     )
 
     worker.work(
-        with_scheduler=False
+        with_scheduler=True
     )
 
 
