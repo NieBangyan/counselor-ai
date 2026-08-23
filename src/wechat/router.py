@@ -113,6 +113,11 @@ def verify_wechat_server(
     )
 
     if not valid:
+        print(
+            "[WECHAT VERIFY FAILED] "
+            "GET /wechat"
+        )
+
         raise HTTPException(
             status_code=403,
             detail=(
@@ -190,6 +195,11 @@ async def receive_wechat_message(
     )
 
     if not valid:
+        print(
+            "[WECHAT VERIFY FAILED] "
+            "POST /wechat"
+        )
+
         raise HTTPException(
             status_code=403,
             detail=(
@@ -203,35 +213,61 @@ async def receive_wechat_message(
 
     raw_xml = await request.body()
 
+    if not raw_xml:
+        print(
+            "[WECHAT EMPTY REQUEST]"
+        )
+
+        return "success"
+
     message = parse_wechat_xml(
         raw_xml
     )
 
-    msg_type = message.get(
-        "MsgType",
-        "",
+    msg_type = (
+        message.get(
+            "MsgType",
+            "",
+        )
+        .strip()
+        .lower()
     )
 
-    from_user = message.get(
-        "FromUserName",
-        "",
+    from_user = (
+        message.get(
+            "FromUserName",
+            "",
+        )
+        .strip()
     )
 
     # ========================================================
-    # 3. 目前只处理文本消息
+    # 3. 基本字段检查
+    # ========================================================
+
+    if not from_user:
+        print(
+            "[WECHAT INVALID MESSAGE] "
+            "missing FromUserName"
+        )
+
+        return "success"
+
+    # ========================================================
+    # 4. 目前只处理文本消息
     # ========================================================
 
     if msg_type != "text":
         print(
             "[WECHAT IGNORE] "
             f"user={from_user} "
-            f"type={msg_type}"
+            f"type={msg_type or 'unknown'}"
         )
 
         return "success"
 
     # ========================================================
-    # 4. 提取文本内容
+    # 5. 提取文本内容
     # ========================================================
 
     content = (
@@ -243,10 +279,15 @@ async def receive_wechat_message(
     )
 
     if not content:
+        print(
+            "[WECHAT EMPTY TEXT] "
+            f"user={from_user}"
+        )
+
         return "success"
 
     # ========================================================
-    # 5. MsgId 去重
+    # 6. MsgId 去重
     # ========================================================
 
     msg_id = (
@@ -258,9 +299,25 @@ async def receive_wechat_message(
     )
 
     if msg_id:
-        claimed = claim_wechat_message(
-            msg_id
-        )
+        try:
+            claimed = (
+                claim_wechat_message(
+                    msg_id
+                )
+            )
+
+        except Exception as exc:
+            print(
+                "[WECHAT DEDUP ERROR] "
+                f"user={from_user} "
+                f"msg_id={msg_id} "
+                f"{type(exc).__name__}: "
+                f"{exc}"
+            )
+
+            # 去重系统本身异常时，
+            # 不继续入队，避免潜在重复任务。
+            return "success"
 
         if not claimed:
             print(
@@ -274,18 +331,18 @@ async def receive_wechat_message(
             return "success"
 
     # ========================================================
-    # 6. 记录接收到的消息
+    # 7. 记录接收到的消息
     # ========================================================
 
     print(
         "[WECHAT RECEIVE] "
         f"user={from_user} "
-        f"msg_id={msg_id} "
+        f"msg_id={msg_id or 'none'} "
         f"content={content}"
     )
 
     # ========================================================
-    # 7. 加入 Redis / RQ 队列
+    # 8. 加入 Redis / RQ 队列
     # ========================================================
 
     try:
@@ -297,7 +354,7 @@ async def receive_wechat_message(
         print(
             "[WECHAT ENQUEUE] "
             f"user={from_user} "
-            f"msg_id={msg_id} "
+            f"msg_id={msg_id or 'none'} "
             f"job={job.id}"
         )
 
@@ -305,7 +362,7 @@ async def receive_wechat_message(
         print(
             "[WECHAT QUEUE ERROR] "
             f"user={from_user} "
-            f"msg_id={msg_id} "
+            f"msg_id={msg_id or 'none'} "
             f"{type(exc).__name__}: "
             f"{exc}"
         )
@@ -314,11 +371,14 @@ async def receive_wechat_message(
         # 也返回 success。
         #
         # 否则微信服务器可能重复 POST，
-        # 造成重复消息风暴。
+        # 造成重复消息。
         return "success"
 
     # ========================================================
-    # 8. 立即回复微信服务器
+    # 9. 立即回复微信服务器
     # ========================================================
 
+    # AI 回答由 RQ Worker 异步生成，
+    # 因此这里不等待模型处理，
+    # 只确认微信消息已经成功接收。
     return "success"

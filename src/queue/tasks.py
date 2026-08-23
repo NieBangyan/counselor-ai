@@ -15,8 +15,72 @@ from src.wechat.text_formatter import (
 
 
 # ============================================================
+# WeChat Text Protection
+# ============================================================
+
+
+def truncate_wechat_reply(
+    text: str,
+    max_length: int = 1800,
+) -> str:
+    """
+    微信文本长度保护。
+
+    如果文本没有超过限制：
+        原样返回。
+
+    如果文本超过限制：
+        优先在靠近末尾的完整句子或换行处截断，
+        尽量避免把一句话直接切成两半。
+    """
+
+    text = text.strip()
+
+    if len(text) <= max_length:
+        return text
+
+    candidate = text[:max_length]
+
+    # --------------------------------------------------------
+    # 寻找适合截断的位置
+    # --------------------------------------------------------
+
+    cut_positions = [
+        candidate.rfind("\n"),
+        candidate.rfind("。"),
+        candidate.rfind("！"),
+        candidate.rfind("？"),
+    ]
+
+    cut_position = max(
+        cut_positions
+    )
+
+    # --------------------------------------------------------
+    # 只有截断位置足够靠后时才使用
+    #
+    # 防止因为前面很早出现一个句号，
+    # 导致 1800 字回答只剩下几百字。
+    # --------------------------------------------------------
+
+    if cut_position >= int(
+        max_length * 0.7
+    ):
+        candidate = candidate[
+            :cut_position + 1
+        ]
+
+    return (
+        candidate.rstrip()
+        + "\n\n"
+        "（回答内容较长，以上为主要内容。）"
+    )
+
+
+# ============================================================
 # Worker-local Services
 # ============================================================
+
 
 _assistant_service: AssistantService | None = None
 _wechat_client: WeChatClient | None = None
@@ -236,6 +300,7 @@ def process_wechat_message(
     成功：
         AI
         -> 格式化
+        -> 长度保护
         -> 微信发送
         -> 保存会话历史
         -> Job FINISHED
@@ -284,6 +349,10 @@ def process_wechat_message(
         .strip()
     )
 
+    # ========================================================
+    # WeChat Text Formatting
+    # ========================================================
+
     answer = format_wechat_text(
         answer
     )
@@ -294,17 +363,12 @@ def process_wechat_message(
         )
 
     # ========================================================
-    # WeChat length protection
+    # WeChat Length Protection
     # ========================================================
 
-    max_length = 1800
-
-    if len(answer) > max_length:
-        answer = (
-            answer[:max_length]
-            + "\n\n"
-            "（回答较长，已截断。）"
-        )
+    answer = truncate_wechat_reply(
+        answer
+    )
 
     # ========================================================
     # Send
@@ -315,6 +379,7 @@ def process_wechat_message(
     #
     # 因为此时还没有写入 conversation，
     # 所以不会污染会话历史。
+
     client.send_text_message(
         open_id=open_id,
         content=answer,
@@ -376,7 +441,9 @@ def process_wechat_message(
         # 保存用户实际在微信里看到的回答：
         #
         # format_wechat_text()
-        # + 长度保护之后的最终文本。
+        # + truncate_wechat_reply()
+        # 之后的最终文本。
+
         conversation_store.append(
             conversation_id=open_id,
             role="assistant",
