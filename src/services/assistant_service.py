@@ -1,26 +1,29 @@
 from typing import Any
 
+from src.alerts.alert_service import AlertService
+from src.conversation.store import (
+    ConversationStore,
+)
 from src.counseling.counselor import Counselor
 from src.counseling.crisis_responder import CrisisResponder
 from src.counseling.safety_classifier import SafetyClassifier
 from src.llm.deepseek_client import DeepSeekClient
 from src.retrieval.retriever import Retriever
 from src.routing.intent_router import IntentRouter
-
-from src.conversation.store import (
-    ConversationStore,
-)
+from src.handoff.handoff_service import HandoffService
 
 
 class AssistantService:
     def __init__(self) -> None:
         self.retriever = Retriever()
+        self.handoff_service = HandoffService()
         self.deepseek_client = DeepSeekClient()
         self.intent_router = IntentRouter()
         self.counselor = Counselor()
         self.safety_classifier = SafetyClassifier()
         self.crisis_responder = CrisisResponder()
         self.conversation_store = ConversationStore()
+        self.alert_service = AlertService()
 
     def handle_question(
         self,
@@ -36,6 +39,7 @@ class AssistantService:
                 "answer": "请输入一个问题。",
                 "retrieval_results": [],
                 "cited_source_ids": [],
+                "alert_id": None,
             }
 
         history: list[dict[str, str]] = []
@@ -53,7 +57,7 @@ class AssistantService:
         # ====================================================
 
         intent = self.intent_router.classify(
-        question
+            question
         )
 
         if (
@@ -97,11 +101,50 @@ class AssistantService:
                 f"-> {safety_level}"
             )
 
+            alert_id: str | None = None
+
             # ------------------------------------------------
             # Crisis
             # ------------------------------------------------
 
             if safety_level == "crisis":
+                # ================================================
+                # 1. 创建高风险告警
+                # ================================================
+
+                alert = (
+                    self.alert_service.create_alert(
+                        user_id=(
+                            conversation_id
+                            or "unknown"
+                        ),
+                        conversation_id=(
+                            conversation_id
+                        ),
+                        message=question,
+                        risk_level="crisis",
+                    )
+                )
+
+                alert_id = str(
+                    alert["id"]
+                )
+
+                # ================================================
+                # 2. 请求人工辅导员接管
+                # ================================================
+
+                if conversation_id:
+                    self.handoff_service.request_handoff(
+                        conversation_id=conversation_id,
+                        alert_id=alert_id,
+                        reason="crisis",
+                    )
+
+                # ================================================
+                # 3. 给学生危机安全回复
+                # ================================================
+
                 answer = (
                     self.crisis_responder.respond(
                         question
@@ -110,11 +153,6 @@ class AssistantService:
 
             # ------------------------------------------------
             # Concern
-            #
-            # 不再调用 Counselor。
-            # 微信被动回复有时间限制，
-            # concern 如果再次调用 LLM，
-            # 整条链路可能因为耗时过长导致微信重试。
             # ------------------------------------------------
 
             elif safety_level == "concern":
@@ -149,6 +187,7 @@ class AssistantService:
                 "answer": answer,
                 "retrieval_results": [],
                 "cited_source_ids": [],
+                "alert_id": alert_id,
             }
 
         # ====================================================
@@ -171,6 +210,7 @@ class AssistantService:
                 ),
                 "retrieval_results": [],
                 "cited_source_ids": [],
+                "alert_id": None,
             }
 
         # ====================================================
@@ -199,4 +239,5 @@ class AssistantService:
                     [],
                 )
             ),
+            "alert_id": None,
         }

@@ -5,6 +5,9 @@ from rq.job import Job
 from src.conversation.store import (
     ConversationStore,
 )
+from src.handoff.handoff_service import (
+    HandoffService,
+)
 from src.services.assistant_service import (
     AssistantService,
 )
@@ -41,10 +44,6 @@ def truncate_wechat_reply(
 
     candidate = text[:max_length]
 
-    # --------------------------------------------------------
-    # 寻找适合截断的位置
-    # --------------------------------------------------------
-
     cut_positions = [
         candidate.rfind("\n"),
         candidate.rfind("。"),
@@ -55,13 +54,6 @@ def truncate_wechat_reply(
     cut_position = max(
         cut_positions
     )
-
-    # --------------------------------------------------------
-    # 只有截断位置足够靠后时才使用
-    #
-    # 防止因为前面很早出现一个句号，
-    # 导致 1800 字回答只剩下几百字。
-    # --------------------------------------------------------
 
     if cut_position >= int(
         max_length * 0.7
@@ -85,6 +77,7 @@ def truncate_wechat_reply(
 _assistant_service: AssistantService | None = None
 _wechat_client: WeChatClient | None = None
 _conversation_store: ConversationStore | None = None
+_handoff_service: HandoffService | None = None
 
 
 def get_assistant_service() -> AssistantService:
@@ -140,6 +133,21 @@ def get_conversation_store() -> ConversationStore:
         )
 
     return _conversation_store
+
+
+def get_handoff_service() -> HandoffService:
+    """
+    每个 RQ Worker 复用一个 HandoffService。
+    """
+
+    global _handoff_service
+
+    if _handoff_service is None:
+        _handoff_service = (
+            HandoffService()
+        )
+
+    return _handoff_service
 
 
 # ============================================================
@@ -218,7 +226,7 @@ def handle_wechat_job_failure(
     )
 
     # --------------------------------------------------------
-    # 防止极端情况下重复发送最终失败通知
+    # 防止重复发送最终失败通知
     # --------------------------------------------------------
 
     notification_key = (
@@ -274,15 +282,135 @@ def handle_wechat_job_failure(
             f"{send_exc}"
         )
 
-        # 通知发送失败，删除幂等标记。
-        # 以后如果有人工补偿机制，
-        # 仍然可以再次尝试。
         try:
             connection.delete(
                 notification_key
             )
         except Exception:
             pass
+
+
+# ============================================================
+# Human Handoff Processing
+# ============================================================
+
+
+def process_human_handoff_message(
+    open_id: str,
+    content: str,
+    handoff_status: str,
+) -> dict[str, Any]:
+    """
+    HUMAN_PENDING / HUMAN_ACTIVE 状态下处理学生消息。
+
+    规则：
+    - 不调用 AI；
+    - 保存学生后续消息；
+    - 给学生发送受控提示；
+    - 返回 Job 成功。
+    """
+
+    print(
+        "[AI BYPASS] "
+        f"user={open_id} "
+        f"status={handoff_status}"
+    )
+
+    # ========================================================
+    # Save User Message
+    # ========================================================
+
+    try:
+        conversation_store = (
+            get_conversation_store()
+        )
+
+        conversation_store.append(
+            conversation_id=open_id,
+            role="user",
+            content=content,
+            intent="counseling",
+            safety_level=None,
+        )
+
+        print(
+            "[HUMAN MESSAGE SAVED] "
+            f"user={open_id} "
+            f"status={handoff_status}"
+        )
+
+    except Exception as exc:
+        print(
+            "[CONVERSATION SAVE ERROR] "
+            f"user={open_id} "
+            f"{type(exc).__name__}: "
+            f"{exc}"
+        )
+
+    # ========================================================
+    # Controlled Reply
+    # ========================================================
+
+    if (
+        handoff_status
+        == HandoffService.HUMAN_PENDING
+    ):
+        answer = (
+            "你的情况已经进入人工辅导员"
+            "跟进流程。"
+            "\n\n"
+            "你可以继续在这里发送消息，"
+            "后续内容会保留给辅导员查看。"
+            "\n\n"
+            "如果你现在有立即伤害自己的危险，"
+            "请不要独自待着，尽快联系身边"
+            "可信任的人，并寻求现实中的"
+            "紧急帮助。"
+        )
+
+    else:
+        answer = (
+            "当前会话已经转由人工辅导员"
+            "跟进。"
+            "\n\n"
+            "你可以继续在这里发送消息，"
+            "后续内容会保留给辅导员查看。"
+        )
+
+    answer = format_wechat_text(
+        answer
+    )
+
+    answer = truncate_wechat_reply(
+        answer
+    )
+
+    client = get_wechat_client()
+
+    client.send_text_message(
+        open_id=open_id,
+        content=answer,
+    )
+
+    print(
+        "[HUMAN HANDOFF REPLY] "
+        f"user={open_id} "
+        f"status={handoff_status}"
+    )
+
+    print(
+        "[RQ DONE] "
+        f"user={open_id}"
+    )
+
+    return {
+        "success": True,
+        "open_id": open_id,
+        "intent": "counseling",
+        "safety_level": None,
+        "handoff_status": handoff_status,
+        "ai_bypassed": True,
+    }
 
 
 # ============================================================
@@ -297,7 +425,7 @@ def process_wechat_message(
     """
     处理一条微信消息。
 
-    成功：
+    普通状态：
         AI
         -> 格式化
         -> 长度保护
@@ -305,19 +433,17 @@ def process_wechat_message(
         -> 保存会话历史
         -> Job FINISHED
 
-    失败：
-        AI 或微信发送失败时，
-        直接抛异常给 RQ。
+    HUMAN_PENDING / HUMAN_ACTIVE：
+        不调用 AI
+        -> 保存学生新消息
+        -> 发送人工跟进提示
+        -> Job FINISHED
 
-    注意：
-        微信发送成功后，如果仅仅是
-        ConversationStore 保存失败，
-        不再抛异常。
+    微信发送成功后，如果仅仅是
+    ConversationStore 保存失败，
+    不让整个 Job Retry。
 
-        否则 RQ Retry 可能导致用户
-        收到重复回答。
-
-    Retry 和最终失败通知由 RQ 负责。
+    否则可能造成重复回复。
     """
 
     print(
@@ -326,13 +452,51 @@ def process_wechat_message(
         f"question={content}"
     )
 
+    # ========================================================
+    # 1. Human Handoff Check
+    # ========================================================
+
+    handoff_service = (
+        get_handoff_service()
+    )
+
+    handoff_status = (
+        handoff_service.get_status(
+            open_id
+        )
+    )
+
+    print(
+        "[HANDOFF CHECK] "
+        f"user={open_id} "
+        f"status={handoff_status}"
+    )
+
+    # ========================================================
+    # 2. Human-controlled Conversation
+    # ========================================================
+
+    if handoff_status in {
+        HandoffService.HUMAN_PENDING,
+        HandoffService.HUMAN_ACTIVE,
+    }:
+        return (
+            process_human_handoff_message(
+                open_id=open_id,
+                content=content,
+                handoff_status=(
+                    handoff_status
+                ),
+            )
+        )
+
+    # ========================================================
+    # 3. Normal AI Processing
+    # ========================================================
+
     service = get_assistant_service()
 
     client = get_wechat_client()
-
-    # ========================================================
-    # AI
-    # ========================================================
 
     result = (
         service.handle_question(
@@ -350,7 +514,7 @@ def process_wechat_message(
     )
 
     # ========================================================
-    # WeChat Text Formatting
+    # 4. WeChat Text Formatting
     # ========================================================
 
     answer = format_wechat_text(
@@ -363,7 +527,7 @@ def process_wechat_message(
         )
 
     # ========================================================
-    # WeChat Length Protection
+    # 5. WeChat Length Protection
     # ========================================================
 
     answer = truncate_wechat_reply(
@@ -371,14 +535,8 @@ def process_wechat_message(
     )
 
     # ========================================================
-    # Send
+    # 6. Send
     # ========================================================
-
-    # 如果这里失败：
-    # 直接抛异常给 RQ Retry。
-    #
-    # 因为此时还没有写入 conversation，
-    # 所以不会污染会话历史。
 
     client.send_text_message(
         open_id=open_id,
@@ -386,14 +544,8 @@ def process_wechat_message(
     )
 
     # ========================================================
-    # Conversation History
+    # 7. Conversation History
     # ========================================================
-
-    # 到这里说明微信发送已经成功。
-    #
-    # 因此即使 ConversationStore 写入失败，
-    # 也不能再让整个 Job Retry，
-    # 否则可能重复向用户发送相同回答。
 
     try:
         conversation_store = (
@@ -438,12 +590,6 @@ def process_wechat_message(
         # Assistant
         # ----------------------------------------------------
 
-        # 保存用户实际在微信里看到的回答：
-        #
-        # format_wechat_text()
-        # + truncate_wechat_reply()
-        # 之后的最终文本。
-
         conversation_store.append(
             conversation_id=open_id,
             role="assistant",
@@ -482,8 +628,14 @@ def process_wechat_message(
         )
 
     # ========================================================
-    # Done
+    # 8. Done
     # ========================================================
+
+    final_handoff_status = (
+        handoff_service.get_status(
+            open_id
+        )
+    )
 
     print(
         "[RQ DONE] "
@@ -499,4 +651,8 @@ def process_wechat_message(
         "safety_level": result.get(
             "safety_level"
         ),
+        "handoff_status": (
+            final_handoff_status
+        ),
+        "ai_bypassed": False,
     }

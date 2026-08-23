@@ -23,7 +23,9 @@ from src.wechat.dedup import (
 load_dotenv()
 
 
-router = APIRouter()
+router = APIRouter(
+    tags=["WeChat"],
+)
 
 
 # ============================================================
@@ -125,6 +127,10 @@ def verify_wechat_server(
             ),
         )
 
+    print(
+        "[WECHAT VERIFY] success"
+    )
+
     return echostr
 
 
@@ -208,7 +214,7 @@ async def receive_wechat_message(
         )
 
     # ========================================================
-    # 2. 读取并解析 XML
+    # 2. 读取 XML
     # ========================================================
 
     raw_xml = await request.body()
@@ -223,6 +229,10 @@ async def receive_wechat_message(
     message = parse_wechat_xml(
         raw_xml
     )
+
+    # ========================================================
+    # 3. 基本字段
+    # ========================================================
 
     msg_type = (
         message.get(
@@ -241,10 +251,6 @@ async def receive_wechat_message(
         .strip()
     )
 
-    # ========================================================
-    # 3. 基本字段检查
-    # ========================================================
-
     if not from_user:
         print(
             "[WECHAT INVALID MESSAGE] "
@@ -254,7 +260,7 @@ async def receive_wechat_message(
         return "success"
 
     # ========================================================
-    # 4. 目前只处理文本消息
+    # 4. 目前只处理文字
     # ========================================================
 
     if msg_type != "text":
@@ -267,7 +273,7 @@ async def receive_wechat_message(
         return "success"
 
     # ========================================================
-    # 5. 提取文本内容
+    # 5. 提取文本
     # ========================================================
 
     content = (
@@ -315,8 +321,6 @@ async def receive_wechat_message(
                 f"{exc}"
             )
 
-            # 去重系统本身异常时，
-            # 不继续入队，避免潜在重复任务。
             return "success"
 
         if not claimed:
@@ -326,12 +330,10 @@ async def receive_wechat_message(
                 f"msg_id={msg_id}"
             )
 
-            # 告诉微信服务器消息已经收到，
-            # 防止继续重复投递。
             return "success"
 
     # ========================================================
-    # 7. 记录接收到的消息
+    # 7. 接收日志
     # ========================================================
 
     print(
@@ -342,7 +344,7 @@ async def receive_wechat_message(
     )
 
     # ========================================================
-    # 8. 加入 Redis / RQ 队列
+    # 8. RQ 入队
     # ========================================================
 
     try:
@@ -367,18 +369,10 @@ async def receive_wechat_message(
             f"{exc}"
         )
 
-        # 即使 Redis / RQ 暂时异常，
-        # 也返回 success。
-        #
-        # 否则微信服务器可能重复 POST，
-        # 造成重复消息。
         return "success"
 
     # ========================================================
-    # 9. 立即回复微信服务器
+    # 9. 立即确认收到
     # ========================================================
 
-    # AI 回答由 RQ Worker 异步生成，
-    # 因此这里不等待模型处理，
-    # 只确认微信消息已经成功接收。
     return "success"

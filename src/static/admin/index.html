@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>AI 辅导员 · 辅导员工作台</title>
+
+    <!--
+        加版本号避免浏览器继续使用旧的 CSS 缓存。
+        以后修改 CSS 后，可以把 v=2 改成 v=3。
+    -->
+    <link
+        rel="stylesheet"
+        href="/admin-ui/admin.css?v=2"
+    >
+</head>
+
+<body>
+    <div class="app">
+
+        <!-- ================================================
+             Header
+        ================================================= -->
+
+        <header class="header">
+            <div>
+                <h1>AI 辅导员</h1>
+                <p>辅导员风险处置工作台</p >
+            </div>
+
+            <button
+                id="refreshButton"
+                class="secondary-button"
+                type="button"
+            >
+                刷新告警
+            </button>
+        </header>
+
+        <!-- ================================================
+             Workspace
+        ================================================= -->
+
+        <main class="workspace">
+
+            <!-- ============================================
+                 左侧：风险告警
+            ============================================= -->
+
+            <aside class="sidebar">
+
+                <div class="sidebar-header">
+                    <div>
+                        <h2>风险告警</h2>
+
+                        <span id="alertCount">
+                            0 条处理中
+                        </span>
+                    </div>
+                </div>
+
+                <div
+                    id="alertList"
+                    class="alert-list"
+                >
+                    <div class="empty-state">
+                        正在加载告警……
+                    </div>
+                </div>
+
+            </aside>
+
+            <!-- ============================================
+                 右侧：学生会话
+            ============================================= -->
+
+            <section class="conversation-panel">
+
+                <!-- ========================================
+                     未选择告警
+                ========================================= -->
+
+                <div
+                    id="emptyConversation"
+                    class="conversation-empty"
+                >
+                    <div>
+                        <h2>
+                            请选择一条风险告警
+                        </h2>
+
+                        <p>
+                            选择左侧告警后，可以查看学生会话、
+                            接入人工处理并向学生发送消息。
+                        </p >
+                    </div>
+                </div>
+
+                <!-- ========================================
+                     已选择告警
+                ========================================= -->
+
+                <div
+                    id="conversationContent"
+                    class="conversation-content hidden"
+                >
+
+                    <!-- ====================================
+                         Conversation Header
+                    ===================================== -->
+
+                    <div class="conversation-header">
+
+                        <div>
+                            <h2 id="studentTitle">
+                                学生会话
+                            </h2>
+
+                            <div class="conversation-meta">
+
+                                <span
+                                    id="riskBadge"
+                                    class="badge danger"
+                                >
+                                    CRISIS
+                                </span>
+
+                                <span
+                                    id="handoffBadge"
+                                    class="badge"
+                                >
+                                    HUMAN_PENDING
+                                </span>
+
+                            </div>
+                        </div>
+
+                        <!-- ================================
+                             Actions
+                        ================================= -->
+
+                        <div class="header-actions">
+
+                            <button
+                                id="acceptButton"
+                                class="primary-button"
+                                type="button"
+                            >
+                                接入会话
+                            </button>
+
+                            <button
+                                id="resolveButton"
+                                class="success-button hidden"
+                                type="button"
+                            >
+                                处理完成
+                            </button>
+
+                        </div>
+                    </div>
+
+                    <!-- ====================================
+                         Message List
+                    ===================================== -->
+
+                    <div
+                        id="messageList"
+                        class="message-list"
+                    >
+                    </div>
+
+                    <!-- ====================================
+                         Human Reply
+                    ===================================== -->
+
+                    <div
+                        id="replyPanel"
+                        class="reply-panel hidden"
+                    >
+
+                        <textarea
+                            id="replyInput"
+                            maxlength="1800"
+                            placeholder="输入辅导员回复……"
+                        ></textarea>
+
+                        <div class="reply-footer">
+
+                            <span id="characterCount">
+                                0 / 1800
+                            </span>
+
+                            <button
+                                id="sendButton"
+                                class="primary-button"
+                                type="button"
+                            >
+                                发送
+                            </button>
+
+                        </div>
+                    </div>
+
+                </div>
+
+            </section>
+
+        </main>
+    </div>
+
+    <!-- ====================================================
+         Toast
+    ===================================================== -->
+
+    <div
+        id="toast"
+        class="toast hidden"
+    >
+    </div>
+
+    <!--
+        同样给 JS 加版本号。
+
+        这样浏览器不会继续使用之前返回 304 的旧 admin.js。
+    -->
+    <script src="/admin-ui/admin.js?v=2"></script>
+
+</body>
+</html>

@@ -1,11 +1,19 @@
+from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from src.services.assistant_service import AssistantService
-from src.wechat.router import router as wechat_router
+from src.admin.router import (
+    router as admin_router,
+)
+from src.services.assistant_service import (
+    AssistantService,
+)
+from src.wechat.router import (
+    router as wechat_router,
+)
 
 
 # ============================================================
@@ -17,15 +25,42 @@ from src.wechat.router import router as wechat_router
 async def lifespan(app: FastAPI):
     print("正在加载 AI 辅导员系统...")
 
-    # 只创建一套 AI 服务。
-    # Web /chat 和微信 /wechat 共用这一套。
-    assistant_service = AssistantService()
+    assistant_service = (
+        AssistantService()
+    )
 
     app.state.assistant_service = (
         assistant_service
     )
 
     print("AI 辅导员系统加载完成。")
+
+    # ========================================================
+    # Route Debug
+    # ========================================================
+
+    print("=" * 70)
+    print("当前 FastAPI 已注册路由：")
+
+    for route in app.routes:
+        path = getattr(
+            route,
+            "path",
+            None,
+        )
+
+        methods = getattr(
+            route,
+            "methods",
+            None,
+        )
+
+        if path:
+            print(
+                f"{methods} -> {path}"
+            )
+
+    print("=" * 70)
 
     yield
 
@@ -40,22 +75,42 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Counselor AI",
     description=(
-        "集学生手册政策问答、基础心理支持"
+        "集学生手册政策问答、"
+        "基础心理支持、"
+        "风险告警、人工接管"
         "与微信公众号接入于一体的 "
         "AI 辅导员服务"
     ),
-    version="0.5.0",
+    version="0.6.0",
     lifespan=lifespan,
 )
+# ============================================================
+# Admin UI
+# ============================================================
 
+from fastapi.staticfiles import StaticFiles
+
+
+app.mount(
+    "/admin-ui",
+    StaticFiles(
+        directory="src/static/admin",
+        html=True,
+    ),
+    name="admin-ui",
+)
 
 # ============================================================
-# WeChat
+# Routers
 # ============================================================
 
 
 app.include_router(
     wechat_router
+)
+
+app.include_router(
+    admin_router
 )
 
 
@@ -155,7 +210,9 @@ def build_sources(
             ),
         )
 
-        sources.append(source)
+        sources.append(
+            source
+        )
 
     return sources
 
@@ -185,12 +242,14 @@ def get_cited_sources(
 def root():
     return {
         "name": "Counselor AI",
-        "version": "0.5.0",
+        "version": "0.6.0",
         "status": "running",
         "capabilities": [
             "policy",
             "counseling",
             "safety",
+            "alerts",
+            "handoff",
             "wechat",
         ],
     }
@@ -204,7 +263,9 @@ def health():
         None,
     )
 
-    ready = service is not None
+    ready = (
+        service is not None
+    )
 
     return {
         "status": (
@@ -213,7 +274,17 @@ def health():
             else "starting"
         ),
         "system_ready": ready,
-        "wechat_route_ready": True,
+        "wechat_route_ready": (
+            any(
+                getattr(
+                    route,
+                    "path",
+                    None,
+                )
+                == "/wechat"
+                for route in app.routes
+            )
+        ),
     }
 
 
@@ -229,10 +300,6 @@ def health():
 def chat(
     request: ChatRequest,
 ) -> ChatResponse:
-    # --------------------------------------------------------
-    # Get shared service
-    # --------------------------------------------------------
-
     service = getattr(
         app.state,
         "assistant_service",
@@ -248,7 +315,9 @@ def chat(
             ),
         )
 
-    question = request.question.strip()
+    question = (
+        request.question.strip()
+    )
 
     if not question:
         raise HTTPException(
@@ -259,12 +328,10 @@ def chat(
         )
 
     try:
-        # ====================================================
-        # Shared AI pipeline
-        # ====================================================
-
-        result = service.handle_question(
-            question
+        result = (
+            service.handle_question(
+                question
+            )
         )
 
         intent = result[
@@ -279,19 +346,19 @@ def chat(
             "answer"
         ]
 
-        retrieval_results = result.get(
-            "retrieval_results",
-            [],
+        retrieval_results = (
+            result.get(
+                "retrieval_results",
+                [],
+            )
         )
 
-        cited_source_ids = result.get(
-            "cited_source_ids",
-            [],
+        cited_source_ids = (
+            result.get(
+                "cited_source_ids",
+                [],
+            )
         )
-
-        # ====================================================
-        # Build API sources
-        # ====================================================
 
         retrieved_sources = (
             build_sources(
@@ -310,13 +377,11 @@ def chat(
             )
         )
 
-        # ====================================================
-        # Response
-        # ====================================================
-
         return ChatResponse(
             intent=intent,
-            safety_level=safety_level,
+            safety_level=(
+                safety_level
+            ),
             answer=answer,
             retrieved_sources=(
                 retrieved_sources
