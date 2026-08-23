@@ -7,6 +7,10 @@ from src.llm.deepseek_client import DeepSeekClient
 from src.retrieval.retriever import Retriever
 from src.routing.intent_router import IntentRouter
 
+from src.conversation.store import (
+    ConversationStore,
+)
+
 
 class AssistantService:
     def __init__(self) -> None:
@@ -16,10 +20,12 @@ class AssistantService:
         self.counselor = Counselor()
         self.safety_classifier = SafetyClassifier()
         self.crisis_responder = CrisisResponder()
+        self.conversation_store = ConversationStore()
 
     def handle_question(
         self,
         question: str,
+        conversation_id: str | None = None,
     ) -> dict[str, Any]:
         question = question.strip()
 
@@ -32,13 +38,44 @@ class AssistantService:
                 "cited_source_ids": [],
             }
 
+        history: list[dict[str, str]] = []
+
+        if conversation_id:
+            history = (
+                self.conversation_store
+                .get_history(
+                    conversation_id
+                )
+            )
+
         # ====================================================
         # 1. Intent Routing
         # ====================================================
 
         intent = self.intent_router.classify(
-            question
+        question
         )
+
+        if (
+            intent == "other"
+            and history
+        ):
+            context_intent = (
+                self.intent_router
+                .classify_with_context(
+                    question,
+                    history,
+                )
+            )
+
+            if context_intent != "other":
+                print(
+                    "[CONTEXT ROUTER] "
+                    f"{question} "
+                    f"-> {context_intent}"
+                )
+
+                intent = context_intent
 
         print(
             f"[ROUTER] {question} -> {intent}"
@@ -102,7 +139,8 @@ class AssistantService:
 
             else:
                 answer = self.counselor.answer(
-                    question
+                    question,
+                    history=history,
                 )
 
             return {

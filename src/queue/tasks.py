@@ -2,6 +2,9 @@ from typing import Any
 
 from rq.job import Job
 
+from src.conversation.store import (
+    ConversationStore,
+)
 from src.services.assistant_service import (
     AssistantService,
 )
@@ -17,6 +20,7 @@ from src.wechat.text_formatter import (
 
 _assistant_service: AssistantService | None = None
 _wechat_client: WeChatClient | None = None
+_conversation_store: ConversationStore | None = None
 
 
 def get_assistant_service() -> AssistantService:
@@ -57,6 +61,21 @@ def get_wechat_client() -> WeChatClient:
         )
 
     return _wechat_client
+
+
+def get_conversation_store() -> ConversationStore:
+    """
+    每个 RQ Worker 复用一个 ConversationStore。
+    """
+
+    global _conversation_store
+
+    if _conversation_store is None:
+        _conversation_store = (
+            ConversationStore()
+        )
+
+    return _conversation_store
 
 
 # ============================================================
@@ -218,10 +237,20 @@ def process_wechat_message(
         AI
         -> 格式化
         -> 微信发送
+        -> 保存会话历史
         -> Job FINISHED
 
     失败：
+        AI 或微信发送失败时，
         直接抛异常给 RQ。
+
+    注意：
+        微信发送成功后，如果仅仅是
+        ConversationStore 保存失败，
+        不再抛异常。
+
+        否则 RQ Retry 可能导致用户
+        收到重复回答。
 
     Retry 和最终失败通知由 RQ 负责。
     """
@@ -240,8 +269,11 @@ def process_wechat_message(
     # AI
     # ========================================================
 
-    result = service.handle_question(
-        content
+    result = (
+        service.handle_question(
+            content,
+            conversation_id=open_id,
+        )
     )
 
     answer = (
@@ -278,10 +310,113 @@ def process_wechat_message(
     # Send
     # ========================================================
 
+    # 如果这里失败：
+    # 直接抛异常给 RQ Retry。
+    #
+    # 因为此时还没有写入 conversation，
+    # 所以不会污染会话历史。
     client.send_text_message(
         open_id=open_id,
         content=answer,
     )
+
+    # ========================================================
+    # Conversation History
+    # ========================================================
+
+    # 到这里说明微信发送已经成功。
+    #
+    # 因此即使 ConversationStore 写入失败，
+    # 也不能再让整个 Job Retry，
+    # 否则可能重复向用户发送相同回答。
+
+    try:
+        conversation_store = (
+            get_conversation_store()
+        )
+
+        intent = result.get(
+            "intent"
+        )
+
+        safety_level = result.get(
+            "safety_level"
+        )
+
+        # ----------------------------------------------------
+        # User
+        # ----------------------------------------------------
+
+        conversation_store.append(
+            conversation_id=open_id,
+            role="user",
+            content=content,
+            intent=(
+                intent
+                if isinstance(
+                    intent,
+                    str,
+                )
+                else None
+            ),
+            safety_level=(
+                safety_level
+                if isinstance(
+                    safety_level,
+                    str,
+                )
+                else None
+            ),
+        )
+
+        # ----------------------------------------------------
+        # Assistant
+        # ----------------------------------------------------
+
+        # 保存用户实际在微信里看到的回答：
+        #
+        # format_wechat_text()
+        # + 长度保护之后的最终文本。
+        conversation_store.append(
+            conversation_id=open_id,
+            role="assistant",
+            content=answer,
+            intent=(
+                intent
+                if isinstance(
+                    intent,
+                    str,
+                )
+                else None
+            ),
+            safety_level=(
+                safety_level
+                if isinstance(
+                    safety_level,
+                    str,
+                )
+                else None
+            ),
+        )
+
+        print(
+            "[CONVERSATION SAVED] "
+            f"user={open_id} "
+            f"intent={intent} "
+            f"safety={safety_level}"
+        )
+
+    except Exception as exc:
+        print(
+            "[CONVERSATION SAVE ERROR] "
+            f"user={open_id} "
+            f"{type(exc).__name__}: "
+            f"{exc}"
+        )
+
+    # ========================================================
+    # Done
+    # ========================================================
 
     print(
         "[RQ DONE] "

@@ -3,10 +3,6 @@ import hmac
 import os
 import xml.etree.ElementTree as ET
 
-from src.wechat.dedup import (
-    claim_wechat_message,
-)
-
 from dotenv import load_dotenv
 from fastapi import (
     APIRouter,
@@ -16,11 +12,11 @@ from fastapi import (
 )
 from fastapi.responses import PlainTextResponse
 
-from src.queue.connection import (
-    redis_connection,
-)
 from src.queue.user_queue import (
     enqueue_user_message,
+)
+from src.wechat.dedup import (
+    claim_wechat_message,
 )
 
 
@@ -57,6 +53,7 @@ def verify_wechat_signature(
     """
     验证微信公众号服务器签名。
     """
+
     token = get_wechat_token()
 
     values = [
@@ -167,57 +164,6 @@ def parse_wechat_xml(
 
 
 # ============================================================
-# Message Deduplication
-# ============================================================
-
-
-def is_duplicate_message(
-    msg_id: str,
-) -> bool:
-    """
-    使用 Redis 对微信 MsgId 去重。
-
-    Redis SET NX：
-        key 不存在时设置成功 -> 第一次收到
-        key 已存在 -> 重复消息
-
-    TTL 为 24 小时。
-    """
-
-    if not msg_id:
-        return False
-
-    dedup_key = (
-        f"wechat:message:{msg_id}"
-    )
-
-    try:
-        is_new_message = (
-            redis_connection.set(
-                dedup_key,
-                "1",
-                nx=True,
-                ex=86400,
-            )
-        )
-
-    except Exception as exc:
-        print(
-            "[WECHAT DEDUP ERROR] "
-            f"{type(exc).__name__}: "
-            f"{exc}"
-        )
-
-        # Redis 去重异常时，
-        # 不阻塞正常消息处理。
-        return False
-
-    return not bool(
-        is_new_message
-    )
-
-
-# ============================================================
 # POST /wechat
 # 接收微信公众号消息
 # ============================================================
@@ -298,28 +244,7 @@ async def receive_wechat_message(
 
     if not content:
         return "success"
-    # ============================================================
-    # Message Deduplication
-    # ============================================================
 
-    msg_id = message.get(
-        "MsgId",
-        "",
-    ).strip()
-
-    if msg_id:
-        claimed = claim_wechat_message(
-            msg_id
-        )
-
-    if not claimed:
-        print(
-            "[WECHAT DUPLICATE] "
-            f"user={from_user} "
-            f"msg_id={msg_id}"
-        )
-
-        return "success"
     # ========================================================
     # 5. MsgId 去重
     # ========================================================
@@ -332,18 +257,21 @@ async def receive_wechat_message(
         .strip()
     )
 
-    if is_duplicate_message(
-        msg_id
-    ):
-        print(
-            "[WECHAT DUPLICATE] "
-            f"user={from_user} "
-            f"msg_id={msg_id}"
+    if msg_id:
+        claimed = claim_wechat_message(
+            msg_id
         )
 
-        # 一定继续返回 success，
-        # 告诉微信服务器消息已经处理。
-        return "success"
+        if not claimed:
+            print(
+                "[WECHAT DUPLICATE] "
+                f"user={from_user} "
+                f"msg_id={msg_id}"
+            )
+
+            # 告诉微信服务器消息已经收到，
+            # 防止继续重复投递。
+            return "success"
 
     # ========================================================
     # 6. 记录接收到的消息
@@ -363,7 +291,7 @@ async def receive_wechat_message(
     try:
         job = enqueue_user_message(
             open_id=from_user,
-            content=content
+            content=content,
         )
 
         print(
