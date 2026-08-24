@@ -47,3 +47,6 @@ AI / RAG / 风险识别
 
 ```
 
+<img width="1180" height="820" alt="d3b56a79f8a9368b0372988881bd70e3" src="https://github.com/user-attachments/assets/050c35d4-a977-41aa-bfa7-b120ba98e37a" />
+
+
