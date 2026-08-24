@@ -1,40 +1,49 @@
 # Counselor AI
+## 系统支持：
 
-An AI-powered counselor assistant for university students.
-
-## Current Progress
-
--  Extract text from the student handbook PDF
--  Build a structured knowledge base
--  Semantic retrieval
--  RAG-based question answering
--  WeChat Official Account integration
+- 普通咨询
+- 多轮对话
+- 会话上下文
+- 意图识别
+- 风险识别
+- AI 自动回复
 ```
-学生
- ↓
+
+
+                 ┌─────────────┐
+学生 A ──┐       │             │
+学生 B ──┼──→ 微信公众号 ──→ AI 辅导员
+学生 C ──┘       │             │
+                 └──────┬──────┘
+                        │
+                 风险识别与判断
+                        │
+             ┌──────────┴──────────┐
+             ↓                     ↓
+          普通咨询               高风险
+             ↓                     ↓
+          AI 回复              风险告警
+                                   ↓
+                              辅导员工作台
+                                   ↓
+                              人工接管会话
+```
+
+```
 微信公众号
- ↓
-腾讯云 Nginx
- ↓
-FastAPI
- ↓
+     ↓
+腾讯云服务器
+     ↓
+   Nginx
+     ↓
+  FastAPI
+     ↓
 Redis + RQ
- ↓
-AI 辅导员服务
- ├─ 意图识别
- ├─ 风险检测
- ├─ RAG 知识库
- └─ 大语言模型
+     ↓
+AI / RAG / 风险识别
 
-高风险
- ↓
-Alert Service
- ↓
-Handoff Service
- ↓
-辅导员工作台
- ↓
-微信客服消息
- ↓
-学生
+     ↘
+   辅导员工作台
+
 ```
+
