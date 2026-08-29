@@ -1,34 +1,36 @@
-# AI 辅导员 Counselor AI
+# Counselor AI
 
-一个面向高校学生咨询场景的 AI 辅导员系统。
+An AI-counselor system for college student consulation scenarios
 
-系统通过微信公众号为学生提供 AI 咨询服务，并结合 **RAG 知识库检索、风险识别、异步任务处理和人工接管机制**，实现 AI 辅导与人工辅导员协同工作。
+
+The system provides AI consulting services for students through the official WeChat public account，combined with **RAG knowledge base retrieval, risk identification, asynchronous task processing, and manual takeover mechanisms**, it enables AI counselor and human counselors to work in synergy
+
 
 ---
 
-## ✨ 主要功能
+## Key Features
 
-- 微信公众号 AI 自动回复
-- 多轮对话与上下文管理
-- RAG 本地知识库检索
-- 多用户独立会话
-- Redis + RQ 异步任务处理
-- 学生消息风险识别
-- 高风险事件自动告警
-- 辅导员风险处置工作台
-- 高风险会话人工接管
-- 辅导员通过后台向学生微信回复
-- 云服务器部署
+- the office wechat AI auto reply
+- Multi-turn dialogue and context management
+- RAG Local Knowledge Base Search
+- Multi user independent dialogue
+- Redis + RQ asynchronous task handling
+- Identifying risks in studens'messages 
+- Automatic alerts for high-risk events
+- councelor risk management workbench
+- High-risk dialogue manual takeover
+- counselor reply on backend to student wechat
+- Cloud Server Setup
  
 ---
 
-## 系统流程
+## System Process
 
 ```text
-学生
+student
  │
  ▼
-微信公众号
+official WeChat
  │
  ▼
 FastAPI
@@ -36,61 +38,61 @@ FastAPI
  ▼
 Redis / RQ
  │
- ├───────────────┐
- ▼               ▼
-风险识别        RAG 知识检索
- │               │
- ▼               ▼
-风险判断        大语言模型
- │               │
- │               ▼
- │            AI 回复
+ ├───────────────────────┐
+ ▼                       ▼
+Risk Identification      RAG Knowledge Retrieval
+ │                       │
+ ▼                       ▼
+Risk Assessment          Large Language Model
+ │                       │
+ │                       ▼
+ │                       AI reply
  │
  ▼
-高风险事件
+high risk event
  │
  ▼
-风险告警
+Risk Alert
  │
  ▼
-辅导员工作台
+counselor workbench
  │
  ▼
-人工接管
+Manual takeover
  │
  ▼
-微信公众号
+offical wechat 
  │
  ▼
-学生
+student
 ```
 
 ---
 
-## 多用户会话
+## Multi-user conversation
 
-系统为不同学生维护独立的：
+The system maintains separate records for different students:
 
-- 会话上下文
-- 消息记录
-- 风险状态
-- 人工接管状态
+- Conversation context
+- Message history
+- Risk status
+- Manual takeover status
 
-单个学生进入人工接管不会影响其他学生继续使用 AI 服务。
+A single student switching to manual intervention will not affect other students’ continued use of the AI service.
 
-当前测试环境使用单个 RQ Worker，因此支持多用户异步任务排队；如需提高并行处理能力，可通过增加 Worker 和服务器资源进行扩展。
+The current testing environment uses a single RQ worker, thus supporting asynchronous task queuing for multiple users; to enhance parallel processing capability, scaling can be achieved by adding more workers and server resources.
 
 ---
 
-## ⚠️ 风险识别与人工接管
+## Risk Identification and Manual Takeover
 
-当系统检测到高风险信息时，会进入人工处置流程：
+When the system detects high-risk information, it triggers a manual handling process：
 
 ```text
 AI
  │
  ▼
-风险识别
+risk indentify
  │
  ▼
 CRISIS
@@ -99,13 +101,13 @@ CRISIS
 HUMAN_PENDING
  │
  ▼
-辅导员接入
+Counselor Access
  │
  ▼
 HUMAN_ACTIVE
  │
  ▼
-人工处理
+Manual processing
  │
  ▼
 RESOLVED
